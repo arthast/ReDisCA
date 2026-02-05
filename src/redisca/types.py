@@ -2,41 +2,44 @@
 
 from dataclasses import dataclass
 from typing import Optional
-
 import numpy as np
 from numpy.typing import NDArray
-
 
 @dataclass
 class ReDisCAResult:
     """Result of the ReDisCA algorithm.
 
     Attributes:
-        W: Spatial filters matrix (N, N).
-        A: Patterns/topographies matrix (N, N).
-        lambdas: Eigenvalues (N,).
-        component_timeseries: Component time series (C, N, T).
-        component_rdms: Observed RDMs per component (N, C, C).
-        spearman_scores: Spearman correlation with target RDM (N,).
-        target_rdm: Original theoretical RDM (C, C).
+        W: Spatial filters (N, r), columns are filters in sensor space.
+        A: Pattern matrix (r, N), rows are topographies (A @ W ≈ I).
+        lambdas: Eigenvalues (r,), sorted descending. lambda_i = w_i.T @ R_bar_d @ w_i.
+        pearson_scores: Pearson correlations (r,) between target RDM and component RDMs.
+        component_timeseries: Component time series (C, r, T).
+        component_rdms: Component RDMs (r, C, C), symmetric with zero diagonal.
+        target_rdm: Original target RDM (C, C).
         n_conditions: Number of conditions C.
         n_channels: Number of channels N.
         n_timepoints: Number of time points T.
+        n_components: Number of components r (may be < N if rank reduced).
+        p_values: Optional p-values from permutation test (r,).
+        significant: Optional boolean mask for significant components (r,).
     """
     W: NDArray[np.floating]
     A: NDArray[np.floating]
     lambdas: NDArray[np.floating]
+    pearson_scores: NDArray[np.floating]
     component_timeseries: NDArray[np.floating]
     component_rdms: NDArray[np.floating]
-    spearman_scores: NDArray[np.floating]
     target_rdm: NDArray[np.floating]
     n_conditions: int
     n_channels: int
     n_timepoints: int
+    n_components: int
 
-    # Optional fields for permutation test
+    # Optional: permutation test outputs
     p_values: Optional[NDArray[np.floating]] = None
-    significant_components: Optional[NDArray[np.bool_]] = None
+    significant: Optional[NDArray[np.bool_]] = None
+
 
 
 @dataclass

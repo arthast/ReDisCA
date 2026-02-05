@@ -8,9 +8,9 @@ version = "0.1.0"
 description = "Representational Dissimilarity Component Analysis for EEG/MEG data"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = { text = "MIT" }
 authors = [
-    {name = "Takhunov Arsen"}
+    { name = "Takhunov Arsen" }
 ]
 keywords = ["EEG", "MEG", "RSA", "RDM", "neuroscience", "signal-processing"]
 classifiers = [
@@ -38,7 +38,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/yourusername/redisca"
+Repository = "https://github.com/arthast/ReDisCA"
 
 [tool.setuptools.packages.find]
 where = ["src"]

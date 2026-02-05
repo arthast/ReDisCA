@@ -88,8 +88,10 @@ def _normalize_X(
 
 def _validate_X(X: NDArray[np.floating], C: int, N: int, T: int) -> None:
     """Validate array X."""
-    if C < 2:
-        raise ValueError(f"Number of conditions C must be >= 2. Got: {C}")
+    if C < 3:
+        raise ValueError(
+            f"Need at least 3 conditions for meaningful analysis. Got: {C}"
+        )
 
     if N < 1:
         raise ValueError(f"Number of channels N must be >= 1. Got: {N}")
@@ -128,3 +130,12 @@ def _validate_D(D: NDArray[np.floating], C: int) -> None:
     # Check symmetry
     if not np.allclose(D, D.T):
         raise ValueError("D must be a symmetric matrix.")
+
+    # Check diagonal is zero
+    if not np.allclose(np.diag(D), 0):
+        raise ValueError("D diagonal must be zero (self-dissimilarity = 0).")
+
+    # Check non-negativity
+    if np.any(D < 0):
+        raise ValueError("D must be non-negative (distances >= 0).")
+
