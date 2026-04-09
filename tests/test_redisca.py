@@ -1,8 +1,19 @@
 import numpy as np
 import pytest
+import matplotlib
+import matplotlib.pyplot as plt
 from numpy.testing import assert_allclose, assert_array_equal
 
 from src.redisca import fit_redisca, validate_inputs, ReDisCAResult
+from src.redisca.types import PermutationTestResult
+from src.redisca.stats import permutation_test_redisca
+from src.redisca.viz import (
+    plot_rdm,
+    plot_top_component_rdms,
+    plot_component_scores,
+    plot_component_lambdas,
+    plot_patterns,
+)
 from src.redisca.core import (
     pair_indices,
     compute_R_ij,
@@ -40,19 +51,34 @@ def simple_data():
 
 @pytest.fixture
 def structured_data():
-    """Data with known structure for testing RDM recovery."""
-    np.random.seed(123)
+    """Data with known structure for testing RDM recovery.
+
+    One latent source encodes the target contrast (groups {0,1} vs {2,3}),
+    while additional nuisance sources and noise ensure that the first
+    ReDisCA component is the dominant match rather than *all* components.
+    """
+    rng = np.random.default_rng(123)
     C, N, T = 4, 20, 200
 
-    # Create a "source" signal that differs between condition groups
-    # Conditions 0,1 are similar; conditions 2,3 are similar
-    base_signal = np.random.randn(N, T)
+    n_sources = 4
+    A_mix = rng.standard_normal((N, n_sources))
+    S = rng.standard_normal((n_sources, T))
+
+    # source 0: target contrast; source 1: nuisance; sources 2-3: common noise
+    amp = np.zeros((C, n_sources))
+    amp[:, 0] = [1.0, 1.0, -1.0, -1.0]       # target
+    amp[:, 1] = [1.0, -1.0, 1.0, -1.0]        # nuisance
+    amp[:, 2:] = 1.0                            # noise (same for all conds)
+
+    source_scale = np.array([3.0, 1.5, 3.0, 3.0])
 
     X = np.zeros((C, N, T))
-    X[0] = base_signal + 0.1 * np.random.randn(N, T)
-    X[1] = base_signal + 0.1 * np.random.randn(N, T)
-    X[2] = -base_signal + 0.1 * np.random.randn(N, T)
-    X[3] = -base_signal + 0.1 * np.random.randn(N, T)
+    for c in range(C):
+        for s in range(n_sources):
+            X[c] += source_scale[s] * amp[c, s] * (
+                A_mix[:, s:s+1] @ S[s:s+1, :]
+            )
+        X[c] += 0.5 * rng.standard_normal((N, T))
 
     # Target RDM: 0-1 similar, 2-3 similar, cross-group different
     target_rdm = np.array([
@@ -658,6 +684,398 @@ class TestMathematicalProperties:
         for c in range(C):
             expected = W.T @ X[c]
             assert_allclose(U[c], expected, rtol=1e-10)
+
+
+# =============================================================================
+# Test: Permutation Test
+# =============================================================================
+
+class TestPermutationTest:
+    """Tests for the permutation test."""
+
+    @pytest.fixture
+    def small_data(self):
+        """Small synthetic data for permutation test smoke tests."""
+        np.random.seed(99)
+        C, N, T = 4, 5, 10
+        X = np.random.randn(C, N, T)
+        target_rdm = np.array([
+            [0, 1, 2, 2],
+            [1, 0, 2, 2],
+            [2, 2, 0, 1],
+            [2, 2, 1, 0]
+        ], dtype=float)
+        return X, target_rdm
+
+    def test_smoke_shapes(self, small_data):
+        """p_values and significant should have shape (r,)."""
+        X, target_rdm = small_data
+        result = fit_redisca(
+            X, target_rdm,
+            permutation_test=True, n_perm=50,
+            random_state=0,
+        )
+        r = result.n_components
+        assert result.p_values is not None
+        assert result.significant is not None
+        assert result.p_values.shape == (r,)
+        assert result.significant.shape == (r,)
+
+    def test_smoke_standalone(self, small_data):
+        """Standalone permutation_test_redisca should return correct shapes."""
+        X, target_rdm = small_data
+        C, N, T = X.shape
+
+        pairs = pair_indices(C)
+        R_list = compute_all_R_ij(X, pairs)
+        R_bar = compute_R_bar(R_list)
+        d_tilde = standardize(vectorize_upper(target_rdm))
+        R_bar_d = compute_R_bar_d(R_list, R_bar, d_tilde)
+        W, lambdas = solve_gep(R_bar_d, R_bar)
+
+        perm_result = permutation_test_redisca(
+            R_list=R_list,
+            R_bar=R_bar,
+            target_rdm=target_rdm,
+            observed_lambdas=lambdas,
+            n_perm=50,
+            random_state=42,
+            return_null=True,
+        )
+        assert isinstance(perm_result, PermutationTestResult)
+        r = len(lambdas)
+        assert perm_result.p_values.shape == (r,)
+        assert perm_result.significant.shape == (r,)
+        assert perm_result.null_max_lambdas is not None
+        assert perm_result.null_max_lambdas.shape == (50,)
+
+    def test_p_values_range(self, small_data):
+        """p-values must be in (0, 1]."""
+        X, target_rdm = small_data
+        result = fit_redisca(
+            X, target_rdm,
+            permutation_test=True, n_perm=50,
+            random_state=0,
+        )
+        assert np.all(result.p_values > 0)
+        assert np.all(result.p_values <= 1)
+
+    def test_determinism(self, small_data):
+        """Same random_state must give identical p_values."""
+        X, target_rdm = small_data
+
+        r1 = fit_redisca(
+            X, target_rdm,
+            permutation_test=True, n_perm=50,
+            random_state=123,
+        )
+        r2 = fit_redisca(
+            X, target_rdm,
+            permutation_test=True, n_perm=50,
+            random_state=123,
+        )
+        assert_allclose(r1.p_values, r2.p_values)
+
+    def test_different_seeds_differ(self, small_data):
+        """Different random_state should (almost certainly) give different p_values."""
+        X, target_rdm = small_data
+
+        r1 = fit_redisca(
+            X, target_rdm,
+            permutation_test=True, n_perm=100,
+            random_state=0,
+        )
+        r2 = fit_redisca(
+            X, target_rdm,
+            permutation_test=True, n_perm=100,
+            random_state=999,
+        )
+        # With different seeds the null distributions should differ
+        # so p_values are very unlikely to be identical
+        assert not np.allclose(r1.p_values, r2.p_values)
+
+    def test_constant_rdm_raises(self):
+        """Constant target_rdm should raise ValueError (uninformative)."""
+        np.random.seed(0)
+        C, N, T = 4, 5, 10
+        X = np.random.randn(C, N, T)
+        # All off-diagonal elements are equal → std ≈ 0
+        target_rdm = np.ones((C, C), dtype=float) - np.eye(C)
+
+        with pytest.raises(ValueError, match="uninformative"):
+            fit_redisca(
+                X, target_rdm,
+                permutation_test=True, n_perm=50,
+                random_state=0,
+            )
+
+    def test_no_permutation_test_by_default(self, small_data):
+        """Without permutation_test=True, p_values and significant are None."""
+        X, target_rdm = small_data
+        result = fit_redisca(X, target_rdm)
+        assert result.p_values is None
+        assert result.significant is None
+
+    def test_return_null_false(self, small_data):
+        """Standalone call with return_null=False should not include null distribution."""
+        X, target_rdm = small_data
+        C, N, T = X.shape
+
+        pairs = pair_indices(C)
+        R_list = compute_all_R_ij(X, pairs)
+        R_bar = compute_R_bar(R_list)
+        d_tilde = standardize(vectorize_upper(target_rdm))
+        R_bar_d = compute_R_bar_d(R_list, R_bar, d_tilde)
+        _, lambdas = solve_gep(R_bar_d, R_bar)
+
+        perm_result = permutation_test_redisca(
+            R_list=R_list,
+            R_bar=R_bar,
+            target_rdm=target_rdm,
+            observed_lambdas=lambdas,
+            n_perm=30,
+            random_state=0,
+            return_null=False,
+        )
+        assert perm_result.null_max_lambdas is None
+
+
+# =============================================================================
+# Test: Visualizations
+# =============================================================================
+
+class TestVisualization:
+    """Smoke tests for viz.py — every function must create a figure."""
+
+    @pytest.fixture
+    def result_with_pvalues(self):
+        """Small result WITH permutation test for viz tests."""
+        np.random.seed(7)
+        C, N, T = 4, 6, 20
+        X = np.random.randn(C, N, T)
+        target_rdm = np.array([
+            [0, 1, 2, 2],
+            [1, 0, 2, 2],
+            [2, 2, 0, 1],
+            [2, 2, 1, 0],
+        ], dtype=float)
+        return fit_redisca(
+            X, target_rdm,
+            permutation_test=True, n_perm=30, random_state=0,
+        )
+
+    @pytest.fixture
+    def result_no_pvalues(self):
+        """Small result WITHOUT permutation test for viz tests."""
+        np.random.seed(7)
+        C, N, T = 4, 6, 20
+        X = np.random.randn(C, N, T)
+        target_rdm = np.array([
+            [0, 1, 2, 2],
+            [1, 0, 2, 2],
+            [2, 2, 0, 1],
+            [2, 2, 1, 0],
+        ], dtype=float)
+        return fit_redisca(X, target_rdm)
+
+    # -- A) plot_rdm ------------------------------------------------------
+
+    def test_plot_rdm_basic(self, result_no_pvalues):
+        import matplotlib
+        matplotlib.use("Agg")
+        fig, ax = plot_rdm(result_no_pvalues.target_rdm, title="Target")
+        assert fig is not None
+        assert ax is not None
+        plt.close(fig)
+
+    def test_plot_rdm_show_values(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, ax = plot_rdm(result_no_pvalues.target_rdm, show_values=True)
+        assert fig is not None
+        plt.close(fig)
+
+    def test_plot_rdm_non_square_raises(self):
+        import matplotlib; matplotlib.use("Agg")
+        with pytest.raises(ValueError, match="square"):
+            plot_rdm(np.zeros((3, 4)))
+
+    # -- B) plot_top_component_rdms --------------------------------------
+
+    def test_top_rdms_with_target(self, result_with_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, axes = plot_top_component_rdms(result_with_pvalues, k=2, include_target=True)
+        assert len(axes) == 3  # target + 2 components
+        plt.close(fig)
+
+    def test_top_rdms_without_target(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, axes = plot_top_component_rdms(result_no_pvalues, k=2, include_target=False)
+        assert len(axes) == 2
+        plt.close(fig)
+
+    def test_top_rdms_k_exceeds_components(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        r = result_no_pvalues.n_components
+        fig, axes = plot_top_component_rdms(result_no_pvalues, k=r + 10, include_target=False)
+        assert len(axes) == r
+        plt.close(fig)
+
+    def test_top_rdms_order_lambda(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, _ = plot_top_component_rdms(result_no_pvalues, k=2, order="lambda")
+        assert fig is not None
+        plt.close(fig)
+
+    def test_top_rdms_bad_order(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        with pytest.raises(ValueError, match="order"):
+            plot_top_component_rdms(result_no_pvalues, order="bad")
+
+    # -- C) plot_component_scores ----------------------------------------
+
+    def test_scores_basic(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, ax = plot_component_scores(result_no_pvalues)
+        assert fig is not None
+        plt.close(fig)
+
+    def test_scores_with_p(self, result_with_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, ax = plot_component_scores(result_with_pvalues, show_p=True)
+        assert fig is not None
+        plt.close(fig)
+
+    def test_scores_show_p_no_pvalues(self, result_no_pvalues):
+        """show_p=True but p_values is None — should not crash."""
+        import matplotlib; matplotlib.use("Agg")
+        fig, ax = plot_component_scores(result_no_pvalues, show_p=True)
+        assert fig is not None
+        plt.close(fig)
+
+    def test_scores_order_pearson(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, _ = plot_component_scores(result_no_pvalues, order="pearson")
+        assert fig is not None
+        plt.close(fig)
+
+    # -- D) plot_component_lambdas ---------------------------------------
+
+    def test_lambdas_basic(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, ax = plot_component_lambdas(result_no_pvalues)
+        assert fig is not None
+        plt.close(fig)
+
+    # -- 2.1) plot_patterns ----------------------------------------------
+
+    def test_patterns_default(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, axes = plot_patterns(result_no_pvalues)
+        assert fig is not None
+        assert len(axes) <= 3
+        plt.close(fig)
+
+    def test_patterns_with_names(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        names = [f"Ch{i}" for i in range(result_no_pvalues.n_channels)]
+        fig, axes = plot_patterns(result_no_pvalues, channel_names=names)
+        assert fig is not None
+        plt.close(fig)
+
+    def test_patterns_custom_idxs(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, axes = plot_patterns(result_no_pvalues, idxs=[0])
+        assert len(axes) == 1
+        plt.close(fig)
+
+    def test_patterns_bad_mode(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        with pytest.raises(ValueError, match="mode"):
+            plot_patterns(result_no_pvalues, mode="topo")
+
+    def test_patterns_wrong_channel_names_len(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        with pytest.raises(ValueError, match="channel_names"):
+            plot_patterns(result_no_pvalues, channel_names=["a", "b"])
+
+    # -- new: pearson_mode -----------------------------------------------
+
+    def test_top_rdms_pearson_pos(self, result_no_pvalues):
+        """pearson_mode='pos' should pick the highest positive r."""
+        import matplotlib; matplotlib.use("Agg")
+        fig, _ = plot_top_component_rdms(
+            result_no_pvalues, k=2, order="pearson", pearson_mode="pos",
+        )
+        assert fig is not None
+        plt.close(fig)
+
+    def test_top_rdms_pearson_abs(self, result_no_pvalues):
+        """pearson_mode='abs' should still work."""
+        import matplotlib; matplotlib.use("Agg")
+        fig, _ = plot_top_component_rdms(
+            result_no_pvalues, k=2, order="pearson", pearson_mode="abs",
+        )
+        assert fig is not None
+        plt.close(fig)
+
+    def test_top_rdms_bad_pearson_mode(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        with pytest.raises(ValueError, match="pearson_mode"):
+            plot_top_component_rdms(
+                result_no_pvalues, order="pearson", pearson_mode="bad",
+            )
+
+    def test_scores_pearson_pos(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, _ = plot_component_scores(
+            result_no_pvalues, order="pearson", pearson_mode="pos",
+        )
+        assert fig is not None
+        plt.close(fig)
+
+    def test_scores_pearson_abs(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, _ = plot_component_scores(
+            result_no_pvalues, order="pearson", pearson_mode="abs",
+        )
+        assert fig is not None
+        plt.close(fig)
+
+    # -- new: normalize_rdms ---------------------------------------------
+
+    def test_top_rdms_no_normalize(self, result_no_pvalues):
+        """normalize_rdms=False should show raw values."""
+        import matplotlib; matplotlib.use("Agg")
+        fig, _ = plot_top_component_rdms(
+            result_no_pvalues, k=1, normalize_rdms=False,
+        )
+        assert fig is not None
+        plt.close(fig)
+
+    # -- new: pattern normalize ------------------------------------------
+
+    def test_patterns_normalize_none(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, _ = plot_patterns(result_no_pvalues, normalize="none")
+        assert fig is not None
+        plt.close(fig)
+
+    def test_patterns_normalize_maxabs(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, _ = plot_patterns(result_no_pvalues, normalize="maxabs")
+        assert fig is not None
+        plt.close(fig)
+
+    def test_patterns_normalize_zscore(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, _ = plot_patterns(result_no_pvalues, normalize="zscore")
+        assert fig is not None
+        plt.close(fig)
+
+    def test_patterns_bad_normalize(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        with pytest.raises(ValueError, match="normalize"):
+            plot_patterns(result_no_pvalues, normalize="bad")
 
 
 # =============================================================================

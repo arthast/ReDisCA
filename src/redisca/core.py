@@ -5,6 +5,7 @@ and preparing data for the generalized eigenvalue problem.
 """
 
 from typing import List, Tuple
+from warnings import warn
 
 import numpy as np
 from numpy.typing import NDArray
@@ -25,8 +26,8 @@ def pair_indices(C: int) -> List[Tuple[int, int]]:
 
 
 def compute_R_ij(
-    X_i: NDArray[np.floating],
-    X_j: NDArray[np.floating]
+        X_i: NDArray[np.floating],
+        X_j: NDArray[np.floating]
 ) -> NDArray[np.floating]:
     """Compute difference covariance matrix for a pair of conditions.
 
@@ -44,8 +45,8 @@ def compute_R_ij(
 
 
 def compute_all_R_ij(
-    X: NDArray[np.floating],
-    pairs: List[Tuple[int, int]]
+        X: NDArray[np.floating],
+        pairs: List[Tuple[int, int]]
 ) -> List[NDArray[np.floating]]:
     """Compute R_ij for all condition pairs.
 
@@ -59,18 +60,20 @@ def compute_all_R_ij(
     return [compute_R_ij(X[i], X[j]) for i, j in pairs]
 
 
-def vectorize_upper(D: NDArray[np.floating]) -> NDArray[np.floating]:
+def vectorize_upper(
+        D: NDArray[np.floating],
+        pairs: list[tuple[int, int]],
+) -> NDArray[np.floating]:
     """Extract upper triangle of matrix into a vector.
 
     Args:
         D: Square matrix (C, C).
+        pairs: List of pairs (i, j).
 
     Returns:
         Vector of length C*(C-1)/2.
     """
-    C = D.shape[0]
-    indices = np.triu_indices(C, k=1)
-    return D[indices]
+    return np.array([D[i, j] for i, j in pairs], dtype=D.dtype)
 
 
 def standardize(d_vec: NDArray[np.floating]) -> NDArray[np.floating]:
@@ -111,9 +114,9 @@ def compute_R_bar(R_list: List[NDArray[np.floating]]) -> NDArray[np.floating]:
 
 
 def compute_R_bar_d(
-    R_list: List[NDArray[np.floating]],
-    R_bar: NDArray[np.floating],
-    d_tilde: NDArray[np.floating]
+        R_list: List[NDArray[np.floating]],
+        R_bar: NDArray[np.floating],
+        d_tilde: NDArray[np.floating]
 ) -> NDArray[np.floating]:
     """Compute target weighted matrix R_bar_d.
 
@@ -136,11 +139,166 @@ def compute_R_bar_d(
     return R_bar_d
 
 
+def symmetrize_matrix(
+        M: NDArray[np.floating],
+        *,
+        name: str,
+        rtol: float = 1e-10,
+        atol: float = 1e-12,
+        raise_on_large: bool = False,
+) -> NDArray[np.floating]:
+    """Check symmetry, warn/error on noticeable antisymmetric part,
+    then return 0.5 * (M + M.T).
+    """
+    M_sym = 0.5 * (M + M.T)
+    M_anti = 0.5 * (M - M.T)
+
+    anti_norm = np.linalg.norm(M_anti, ord="fro")
+    sym_norm = np.linalg.norm(M_sym, ord="fro")
+    rel = anti_norm / max(sym_norm, np.finfo(float).eps)
+
+    if anti_norm > atol and rel > rtol:
+        msg = (
+            f"{name} is not symmetric within tolerance: "
+            f"||anti||_F={anti_norm:.3e}, rel={rel:.3e}. "
+            "This may indicate an upstream bug; matrix will be symmetrized."
+        )
+        if raise_on_large:
+            raise ValueError(msg)
+        warn(msg, RuntimeWarning, stacklevel=2)
+
+    return M_sym
+
+
+def renormalize_filters_in_metric(
+        W: NDArray[np.floating],
+        R_bar: NDArray[np.floating],
+        *,
+        min_norm_sq: float = 1e-12,
+        check_rtol: float = 1e-8,
+        check_atol: float = 1e-10,
+) -> NDArray[np.floating]:
+    """Renormalize filters so that w.T @ R_bar @ w = 1 for each column of W.
+
+    Raises:
+        RuntimeError: If a filter cannot be safely normalized or the
+        post-normalization check fails.
+    """
+    W = W.copy()
+
+    for i in range(W.shape[1]):
+        w = W[:, i]
+        norm_sq = float(w @ R_bar @ w)
+
+        if not np.isfinite(norm_sq):
+            raise RuntimeError(
+                f"Failed to renormalize filter {i}: "
+                f"w.T @ R_bar @ w is not finite ({norm_sq})."
+            )
+
+        if norm_sq <= min_norm_sq:
+            raise RuntimeError(
+                f"Failed to renormalize filter {i}: "
+                f"w.T @ R_bar @ w = {norm_sq:.3e} <= {min_norm_sq:.3e}. "
+                "This indicates a numerically degenerate filter or an upstream bug."
+            )
+
+        w = w / np.sqrt(norm_sq)
+
+        norm_sq_after = float(w @ R_bar @ w)
+        if (
+                not np.isfinite(norm_sq_after)
+                or not np.isclose(norm_sq_after, 1.0, rtol=check_rtol, atol=check_atol)
+        ):
+            raise RuntimeError(
+                f"Post-renormalization check failed for filter {i}: "
+                f"w.T @ R_bar @ w = {norm_sq_after:.16e} instead of 1."
+            )
+
+        W[:, i] = w
+
+    return W
+
+
+def validate_rank(
+        rank: int | str | None,
+        N: int,
+) -> int | str | None:
+    """Validate rank parameter."""
+    if rank is None:
+        return None
+
+    if isinstance(rank, str):
+        if rank == "auto":
+            return rank
+        raise ValueError(
+            f"rank must be 'auto', None, or an integer in [1, {N}], got string {rank!r}"
+        )
+
+    if isinstance(rank, (bool, np.bool_)):
+        raise TypeError(
+            "rank must be 'auto', None, or a positive integer; bool is not allowed"
+        )
+
+    if isinstance(rank, (int, np.integer)):
+        rank = int(rank)
+        if rank < 1:
+            raise ValueError(f"rank must be >= 1, got {rank}")
+        if rank > N:
+            raise ValueError(f"rank must be <= N ({N}), got {rank}")
+        return rank
+
+    raise TypeError(
+        f"rank must be 'auto', None, or a positive integer in [1, {N}], "
+        f"got {type(rank).__name__}"
+    )
+
+
+def resolve_rank(
+        rank: int | str | None,
+        available_rank: int,
+        N: int,
+        tol: float,
+) -> int:
+    rank = validate_rank(rank, N)
+
+    if available_rank == 0:
+        raise ValueError(
+            "No positive eigenvalues found in R_bar. "
+            "Data or time window is uninformative."
+        )
+
+    if rank == "auto":
+        return available_rank
+
+    if rank is None:
+        if available_rank < N:
+            warn(
+                f"rank=None means no explicit user rank cap, not forced full rank. "
+                f"R_bar has only {available_rank} eigenvalues > tol={tol}, "
+                f"so {available_rank} components will be returned instead of N={N}.",
+                RuntimeWarning,
+                stacklevel=2
+            )
+        return available_rank
+
+    if rank > available_rank:
+        warn(
+            f"Requested rank={rank}, but only {available_rank} eigenvalues of "
+            f"R_bar exceed tol={tol}. Using rank={available_rank}.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return available_rank
+
+    return rank
+
+
 def solve_gep(
-    R_bar_d: NDArray[np.floating],
-    R_bar: NDArray[np.floating],
-    rank: int | str | None = "auto",
-    tol: float = 1e-10,
+        R_bar_d: NDArray[np.floating],
+        R_bar: NDArray[np.floating],
+        rank: int | str | None = "auto",
+        tol: float = 1e-10,
 ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
     """Solve generalized eigenvalue problem using principal subspace approach.
 
@@ -155,10 +313,15 @@ def solve_gep(
         R_bar_d: Target weighted matrix (N, N).
         R_bar: Mean difference covariance matrix (N, N).
         rank: Number of principal components to retain.
-            - "auto": automatically determine rank from positive eigenvalues
+            - "auto": automatically use the effective numerical rank, i.e. the
+              number of eigenvalues of R_bar greater than tol
             - int: use specified rank
-            - None: use full rank (no dimensionality reduction)
-        tol: Threshold for determining positive eigenvalues when rank="auto".
+            - None: do not impose a user-specified rank cap; keep all numerically
+              valid directions, i.e. all eigenvalues of R_bar greater than tol.
+              This may return fewer than N components if R_bar is rank-deficient
+              or numerically singular.
+        tol: Threshold for treating eigenvalues of R_bar as numerically positive.
+             Used to determine the effective numerical rank.
 
     Returns:
         Tuple of:
@@ -166,56 +329,39 @@ def solve_gep(
             lambdas: Eigenvalues (r,), sorted descending.
 
     Raises:
-        ValueError: If no positive eigenvalues found (uninformative data).
+        ValueError: If no positive eigenvalues found.
+        RuntimeError: If selected directions are numerically inconsistent
+            or filters cannot be properly renormalized.
     """
     N = R_bar.shape[0]
-
-    # Symmetrize matrices for numerical stability
-    R_bar_d = 0.5 * (R_bar_d + R_bar_d.T)
-    R_bar = 0.5 * (R_bar + R_bar.T)
 
     # Compute eigendecomposition of R_bar for principal subspace
     eig_vals, eig_vecs = eigh(R_bar)
 
-    # Determine rank based on positive eigenvalues only (R_bar should be PSD)
-    if rank == "auto":
-        # Keep only components with positive eigenvalues (above tolerance)
-        positive_mask = eig_vals > tol
-        r = np.sum(positive_mask)
-        if r == 0:
-            raise ValueError(
-                "No positive eigenvalues found in R_bar. "
-                "Data or time window is uninformative."
-            )
-    elif rank is None:
-        r = N
-    else:
-        r = min(int(rank), N)
+    available_rank = int(np.sum(eig_vals > tol))
+    r = resolve_rank(rank, available_rank, N, tol)
 
     # Select top r eigenvectors (largest eigenvalues)
     idx = np.argsort(eig_vals)[::-1][:r]
-    V_r = eig_vecs[:, idx]  # (N, r)
-    D_r = eig_vals[idx]     # (r,)
+    V_r = eig_vecs[:, idx]
+    D_r = eig_vals[idx]
 
     # Check that selected eigenvalues are positive
     if np.any(D_r <= tol):
-        # Reduce to only positive ones
-        pos_mask = D_r > tol
-        if not np.any(pos_mask):
-            raise ValueError(
-                "No positive eigenvalues in selected subspace. "
-                "Try reducing rank or check input data."
-            )
-        V_r = V_r[:, pos_mask]
-        D_r = D_r[pos_mask]
-        r = len(D_r)
+        raise RuntimeError(
+            "Internal error: selected eigenvalues contain values <= tol "
+            "despite available-rank filtering."
+        )
 
     # Transform to principal subspace
     R_bar_d_pca = V_r.T @ R_bar_d @ V_r
+    R_bar_d_pca = symmetrize_matrix(
+        R_bar_d_pca,
+        name="R_bar_d_pca",
+        atol=1e-12,
+        rtol=1e-10,
+    )
     R_bar_pca = np.diag(D_r)
-
-    # Symmetrize for numerical stability
-    R_bar_d_pca = 0.5 * (R_bar_d_pca + R_bar_d_pca.T)
 
     # Solve GEP in reduced space
     lambdas_pca, W_pca = eigh(R_bar_d_pca, R_bar_pca)
@@ -224,11 +370,7 @@ def solve_gep(
     W = V_r @ W_pca  # (N, r)
 
     # Renormalize filters: w.T @ R_bar @ w = 1
-    for i in range(r):
-        w = W[:, i]
-        norm_sq = w @ R_bar @ w
-        if norm_sq > 1e-12:
-            W[:, i] = w / np.sqrt(norm_sq)
+    W = renormalize_filters_in_metric(W, R_bar)
 
     # Recompute lambdas in sensor space: lambda_i = w_i.T @ R_bar_d @ w_i
     lambdas = np.array([W[:, i] @ R_bar_d @ W[:, i] for i in range(r)], dtype=np.float64)
@@ -242,14 +384,16 @@ def solve_gep(
 
 
 def compute_patterns(
-    W: NDArray[np.floating],
-    R_bar: NDArray[np.floating]
+        W: NDArray[np.floating],
+        R_bar: NDArray[np.floating]
 ) -> NDArray[np.floating]:
     """Compute source topographies (patterns) from spatial filters.
 
-    As per the paper:
-    - If W is square and invertible: A = W^(-1), where rows are topographies.
-    - For non-square W (after rank reduction): A = (W.T @ R_bar @ W)^(-1) @ W.T @ R_bar
+    Always uses the numerically stable formula:
+        A = (W.T @ R_bar @ W)^{-1} @ W.T @ R_bar
+
+    This avoids direct matrix inversion of W which is ill-conditioned.
+    The result satisfies A @ W ≈ I_r.
 
     Args:
         W: Spatial filters (N, r), columns are filters.
@@ -258,35 +402,26 @@ def compute_patterns(
     Returns:
         A: Pattern matrix (r, N), rows are topographies.
     """
-    N, r = W.shape
-    R_bar = 0.5 * (R_bar + R_bar.T)
-
-    if r == N:
-        # Square case
-        try:
-            A = np.linalg.inv(W)  # (N, N), rows are topographies
-            return A
-        except np.linalg.LinAlgError:
-            pass
-
-    # General formula for non-square or singular W:
-    # A = (W.T @ R_bar @ W)^(-1) @ W.T @ R_bar
     WtRW = W.T @ R_bar @ W  # (r, r)
-    WtR = W.T @ R_bar       # (r, N)
+    WtR = W.T @ R_bar  # (r, N)
 
     try:
         A = np.linalg.solve(WtRW, WtR)  # (r, N)
     except np.linalg.LinAlgError:
-        # If still singular, use pseudo-inverse
+        # If singular, use pseudo-inverse as fallback
+        warn(
+            "WtRW is singular in compute_patterns; using pseudo-inverse. "
+            "Returned patterns may be numerically unstable.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         A = np.linalg.pinv(WtRW) @ WtR
-
     return A
 
 
-
 def compute_component_timeseries(
-    W: NDArray[np.floating],
-    X: NDArray[np.floating]
+        W: NDArray[np.floating],
+        X: NDArray[np.floating]
 ) -> NDArray[np.floating]:
     """Compute component time series for all conditions.
 
@@ -311,10 +446,10 @@ def compute_component_timeseries(
 
 
 def compute_component_rdms(
-    W: NDArray[np.floating],
-    R_list: List[NDArray[np.floating]],
-    pairs: List[Tuple[int, int]],
-    C: int
+        W: NDArray[np.floating],
+        R_list: List[NDArray[np.floating]],
+        pairs: List[Tuple[int, int]],
+        C: int
 ) -> NDArray[np.floating]:
     """Compute RDM for each component.
 
@@ -345,45 +480,41 @@ def compute_component_rdms(
     return D_hat
 
 
+def _standardize_or_none(
+        vec: NDArray[np.floating],
+        tol: float = 1e-10,
+) -> NDArray[np.floating] | None:
+    """Return z-scored vector, or None if vector is nearly constant."""
+    std = np.std(vec, ddof=0)
+    if std < tol:
+        return None
+    return (vec - np.mean(vec)) / std
+
+
 def compute_pearson_scores(
-    target_rdm: NDArray[np.floating],
-    component_rdms: NDArray[np.floating]
+        target_rdm: NDArray[np.floating],
+        pairs: list[tuple[int, int]],
+        component_rdms: NDArray[np.floating]
 ) -> NDArray[np.floating]:
     """Compute Pearson correlation between target RDM and each component RDM.
 
-    Uses z-standardization for both vectors as per the ReDisCA paper formula (2):
-        rho = (1/P) * sum(d_tilde_k * d_hat_tilde_k)
-
-    where d_tilde and d_hat_tilde are z-scored upper triangle vectors.
-
-    Args:
-        target_rdm: Target RDM of shape (C, C).
-        component_rdms: Component RDMs of shape (r, C, C).
-
-    Returns:
-        Pearson correlations for each component (r,).
-
-    Note:
-        Target RDM must not be constant (validated in fit_redisca).
-        Component RDMs with constant values get score = 0.
+    Target RDM must be informative: nearly constant target raises ValueError.
+    Nearly constant component RDM gets score = 0.0 by design.
     """
     r = component_rdms.shape[0]
     scores = np.zeros(r, dtype=np.float64)
 
-    target_vec = vectorize_upper(target_rdm)
-    target_z = standardize(target_vec)
+    target_vec = vectorize_upper(target_rdm, pairs)
+    target_z = standardize(target_vec)  # intentionally raises on degenerate target
 
     for comp in range(r):
-        comp_vec = vectorize_upper(component_rdms[comp])
-        comp_std = np.std(comp_vec, ddof=0)
+        comp_vec = vectorize_upper(component_rdms[comp], pairs)
+        comp_z = _standardize_or_none(comp_vec)
 
-        if comp_std < 1e-10:
+        if comp_z is None:
             scores[comp] = 0.0
             continue
 
-        comp_z = (comp_vec - np.mean(comp_vec)) / comp_std
         scores[comp] = np.mean(target_z * comp_z)
 
     return scores
-
-

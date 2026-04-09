@@ -5,6 +5,7 @@ from typing import Optional
 import numpy as np
 from numpy.typing import NDArray
 
+
 @dataclass
 class ReDisCAResult:
     """Result of the ReDisCA algorithm.
@@ -40,6 +41,20 @@ class ReDisCAResult:
     p_values: Optional[NDArray[np.floating]] = None
     significant: Optional[NDArray[np.bool_]] = None
 
+
+@dataclass
+class PermutationTestResult:
+    """Result of the permutation test.
+
+    Attributes:
+        p_values: p-value for each component (r,).
+        significant: Boolean mask — True where p < alpha (r,).
+        null_max_lambdas: Max eigenvalue from each permutation (n_perm,).
+            Only populated when ``return_null=True``.
+    """
+    p_values: NDArray[np.floating]
+    significant: NDArray[np.bool_]
+    null_max_lambdas: Optional[NDArray[np.floating]] = None
 
 
 @dataclass
