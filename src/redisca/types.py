@@ -12,7 +12,9 @@ class ReDisCAResult:
 
     Attributes:
         W: Spatial filters (N, r), columns are filters in sensor space.
-        A: Pattern matrix (r, N), rows are topographies (A @ W ≈ I).
+        A: Pattern matrix (N, r), columns are topographies.
+            In the rank-reduced setting, sensor data are reconstructed as
+            ``X_c ≈ A @ U_c`` where ``U_c = W.T @ X_c``.
         lambdas: Eigenvalues (r,), sorted descending. lambda_i = w_i.T @ R_bar_d @ w_i.
         pearson_scores: Pearson correlations (r,) between target RDM and component RDMs.
         component_timeseries: Component time series (C, r, T).

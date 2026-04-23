@@ -36,6 +36,9 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
 ]
+mne = [
+    "mne>=1.6",
+]
 
 [project.urls]
 Repository = "https://github.com/arthast/ReDisCA"

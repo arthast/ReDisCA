@@ -2,19 +2,26 @@ import numpy as np
 import pytest
 import matplotlib
 import matplotlib.pyplot as plt
+import types
 from numpy.testing import assert_allclose, assert_array_equal
 
-from src.redisca import fit_redisca, validate_inputs, ReDisCAResult
-from src.redisca.types import PermutationTestResult
-from src.redisca.stats import permutation_test_redisca
-from src.redisca.viz import (
+from redisca import export_result, fit_redisca, validate_inputs, ReDisCAResult
+from redisca.types import PermutationTestResult
+from redisca.stats import permutation_test_redisca
+from redisca.viz import (
     plot_rdm,
     plot_top_component_rdms,
     plot_component_scores,
     plot_component_lambdas,
+    plot_component_timeseries,
     plot_patterns,
 )
-from src.redisca.core import (
+from redisca.viz_mne import (
+    plot_pattern_topomaps,
+    plot_compare_conditions,
+    plot_condition_joint,
+)
+from redisca.core import (
     pair_indices,
     compute_R_ij,
     compute_all_R_ij,
@@ -89,6 +96,42 @@ def structured_data():
     ], dtype=float)
 
     return X, target_rdm
+
+
+@pytest.fixture
+def result_with_pvalues():
+    """Small result WITH permutation test for visualization tests."""
+    np.random.seed(7)
+    C, N, T = 4, 6, 20
+    X = np.random.randn(C, N, T)
+    target_rdm = np.array([
+        [0, 1, 2, 2],
+        [1, 0, 2, 2],
+        [2, 2, 0, 1],
+        [2, 2, 1, 0],
+    ], dtype=float)
+    return fit_redisca(
+        X,
+        target_rdm,
+        permutation_test=True,
+        n_perm=30,
+        random_state=0,
+    )
+
+
+@pytest.fixture
+def result_no_pvalues():
+    """Small result WITHOUT permutation test for visualization tests."""
+    np.random.seed(7)
+    C, N, T = 4, 6, 20
+    X = np.random.randn(C, N, T)
+    target_rdm = np.array([
+        [0, 1, 2, 2],
+        [1, 0, 2, 2],
+        [2, 2, 0, 1],
+        [2, 2, 1, 0],
+    ], dtype=float)
+    return fit_redisca(X, target_rdm)
 
 
 # =============================================================================
@@ -184,6 +227,17 @@ class TestVectorizeUpper:
         vec = vectorize_upper(D)
         expected = np.array([1, 2, 3])
         assert_array_equal(vec, expected)
+
+    def test_explicit_and_implicit_pairs_match(self):
+        """Explicit pairs should match auto-derived upper triangle indices."""
+        D = np.array([
+            [0, 1, 2, 4],
+            [1, 0, 3, 5],
+            [2, 3, 0, 6],
+            [4, 5, 6, 0],
+        ], dtype=float)
+        pairs = pair_indices(D.shape[0])
+        assert_array_equal(vectorize_upper(D), vectorize_upper(D, pairs))
 
 
 # =============================================================================
@@ -294,8 +348,8 @@ class TestSolveGep:
 class TestComputePatterns:
     """Tests for compute_patterns function."""
 
-    def test_a_times_w_identity(self, simple_data):
-        """A @ W should be approximately identity."""
+    def test_wt_a_identity(self, simple_data):
+        """W.T @ A should be approximately identity."""
         X, target_rdm = simple_data
         C, N, T = X.shape
 
@@ -308,11 +362,11 @@ class TestComputePatterns:
         W, _ = solve_gep(R_bar_d, R_bar)
         A = compute_patterns(W, R_bar)
 
-        AW = A @ W
-        assert_allclose(AW, np.eye(N), atol=1e-6)
+        WTA = W.T @ A
+        assert_allclose(WTA, np.eye(N), atol=1e-6)
 
-    def test_rank_reduced_a_times_w(self, simple_data):
-        """A @ W should be identity even with rank reduction."""
+    def test_rank_reduced_wt_a(self, simple_data):
+        """W.T @ A should be identity even with rank reduction."""
         X, target_rdm = simple_data
         C, N, T = X.shape
 
@@ -326,8 +380,8 @@ class TestComputePatterns:
         W, _ = solve_gep(R_bar_d, R_bar, rank=rank)
         A = compute_patterns(W, R_bar)
 
-        AW = A @ W
-        assert_allclose(AW, np.eye(rank), atol=1e-6)
+        WTA = W.T @ A
+        assert_allclose(WTA, np.eye(rank), atol=1e-6)
 
 
 # =============================================================================
@@ -444,6 +498,22 @@ class TestComputePearsonScores:
 
         assert_allclose(scores[0], 1.0, atol=1e-10)
 
+    def test_explicit_pairs_match_implicit(self):
+        """Explicit pairs should produce the same Pearson scores."""
+        target_rdm = np.array([
+            [0, 1, 2, 2],
+            [1, 0, 2, 2],
+            [2, 2, 0, 1],
+            [2, 2, 1, 0]
+        ], dtype=float)
+        component_rdms = np.array([target_rdm, target_rdm * 2], dtype=float)
+        pairs = pair_indices(target_rdm.shape[0])
+
+        scores_implicit = compute_pearson_scores(target_rdm, component_rdms)
+        scores_explicit = compute_pearson_scores(target_rdm, component_rdms, pairs=pairs)
+
+        assert_allclose(scores_implicit, scores_explicit)
+
 
 # =============================================================================
 # Test: fit_redisca (integration)
@@ -467,7 +537,7 @@ class TestFitRedisca:
 
         r = result.n_components
         assert result.W.shape == (N, r)
-        assert result.A.shape == (r, N)
+        assert result.A.shape == (N, r)
         assert result.lambdas.shape == (r,)
         assert result.pearson_scores.shape == (r,)
         assert result.component_timeseries.shape == (C, r, T)
@@ -839,6 +909,102 @@ class TestPermutationTest:
         )
         assert perm_result.null_max_lambdas is None
 
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            ({"n_perm": 0}, "n_perm must be >= 1"),
+            ({"n_perm": -1}, "n_perm must be >= 1"),
+            ({"alpha": 0.0}, "alpha must satisfy 0 < alpha < 1"),
+            ({"alpha": 1.0}, "alpha must satisfy 0 < alpha < 1"),
+            ({"alpha": -0.1}, "alpha must satisfy 0 < alpha < 1"),
+            ({"alpha": 1.5}, "alpha must satisfy 0 < alpha < 1"),
+        ],
+    )
+    def test_invalid_fit_permutation_params_raise(self, small_data, kwargs, match):
+        """fit_redisca should reject invalid permutation parameters."""
+        X, target_rdm = small_data
+
+        with pytest.raises(ValueError, match=match):
+            fit_redisca(
+                X,
+                target_rdm,
+                permutation_test=True,
+                random_state=0,
+                **kwargs,
+            )
+
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            ({"n_perm": 0}, "n_perm must be >= 1"),
+            ({"n_perm": -1}, "n_perm must be >= 1"),
+            ({"alpha": 0.0}, "alpha must satisfy 0 < alpha < 1"),
+            ({"alpha": 1.0}, "alpha must satisfy 0 < alpha < 1"),
+            ({"alpha": -0.1}, "alpha must satisfy 0 < alpha < 1"),
+            ({"alpha": 1.5}, "alpha must satisfy 0 < alpha < 1"),
+        ],
+    )
+    def test_invalid_standalone_permutation_params_raise(self, small_data, kwargs, match):
+        """Standalone permutation_test_redisca should reject invalid params."""
+        X, target_rdm = small_data
+        C, N, T = X.shape
+
+        pairs = pair_indices(C)
+        R_list = compute_all_R_ij(X, pairs)
+        R_bar = compute_R_bar(R_list)
+        d_tilde = standardize(vectorize_upper(target_rdm))
+        R_bar_d = compute_R_bar_d(R_list, R_bar, d_tilde)
+        _, lambdas = solve_gep(R_bar_d, R_bar)
+
+        with pytest.raises(ValueError, match=match):
+            permutation_test_redisca(
+                R_list=R_list,
+                R_bar=R_bar,
+                target_rdm=target_rdm,
+                observed_lambdas=lambdas,
+                random_state=0,
+                **kwargs,
+            )
+
+
+# =============================================================================
+# Test: Export
+# =============================================================================
+
+class TestExportResult:
+    """Tests for export_result helper."""
+
+    def test_export_bundle_writes_expected_files(self, simple_data, tmp_path):
+        """Export should write the expected artifact bundle."""
+        import csv
+        import json
+
+        X, target_rdm = simple_data
+        result = fit_redisca(X, target_rdm)
+
+        paths = export_result(result, tmp_path / "bundle")
+
+        assert set(paths) == {"arrays", "component_scores", "target_rdm", "metadata"}
+        for path in paths.values():
+            assert path.exists()
+
+        arrays = np.load(paths["arrays"])
+        assert arrays["W"].shape == result.W.shape
+        assert arrays["A"].shape == result.A.shape
+        assert arrays["component_timeseries"].shape == result.component_timeseries.shape
+        assert arrays["component_rdms"].shape == result.component_rdms.shape
+        assert arrays["target_rdm"].shape == result.target_rdm.shape
+
+        with paths["metadata"].open("r", encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        assert metadata["n_conditions"] == result.n_conditions
+        assert metadata["n_channels"] == result.n_channels
+        assert metadata["n_components"] == result.n_components
+
+        with paths["component_scores"].open("r", encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        assert len(rows) == result.n_components
+
 
 # =============================================================================
 # Test: Visualizations
@@ -966,6 +1132,73 @@ class TestVisualization:
         assert fig is not None
         plt.close(fig)
 
+    # -- E) plot_component_timeseries -----------------------------------
+
+    def test_component_timeseries_default(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, axes = plot_component_timeseries(result_no_pvalues)
+        assert fig is not None
+        assert len(axes) >= 1
+        plt.close(fig)
+
+    def test_component_timeseries_with_time_and_names(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        time = np.linspace(-0.1, 0.4, result_no_pvalues.n_timepoints)
+        names = [f"Cond {i}" for i in range(result_no_pvalues.n_conditions)]
+        fig, axes = plot_component_timeseries(
+            result_no_pvalues,
+            idxs=[0],
+            time=time,
+            condition_names=names,
+        )
+        assert fig is not None
+        assert len(axes) == 1
+        plt.close(fig)
+
+    def test_component_timeseries_time_unit_ms_and_time_zero(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        time = np.linspace(-0.05, 0.2, result_no_pvalues.n_timepoints)
+        fig, axes = plot_component_timeseries(
+            result_no_pvalues,
+            idxs=[0],
+            time=time,
+            time_unit="ms",
+        )
+        assert axes[0].get_xlabel() == "Time (ms)"
+        assert any(
+            line.get_linestyle() == ":"
+            and np.asarray(line.get_xdata()).shape == (2,)
+            and np.allclose(line.get_xdata(), [0.0, 0.0])
+            for line in axes[0].lines
+        )
+        plt.close(fig)
+
+    def test_component_timeseries_bad_time_unit(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        time = np.linspace(-0.05, 0.2, result_no_pvalues.n_timepoints)
+        with pytest.raises(ValueError, match="time_unit"):
+            plot_component_timeseries(result_no_pvalues, time=time, time_unit="minutes")
+
+    def test_component_timeseries_figure_legend(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, axes = plot_component_timeseries(
+            result_no_pvalues,
+            idxs=[0, 1],
+            legend="figure",
+        )
+        assert len(fig.legends) == 1
+        plt.close(fig)
+
+    def test_component_timeseries_bad_time_len(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        with pytest.raises(ValueError, match="time must have shape"):
+            plot_component_timeseries(result_no_pvalues, time=np.arange(3))
+
+    def test_component_timeseries_bad_condition_names_len(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        with pytest.raises(ValueError, match="condition_names"):
+            plot_component_timeseries(result_no_pvalues, condition_names=["a", "b"])
+
     # -- 2.1) plot_patterns ----------------------------------------------
 
     def test_patterns_default(self, result_no_pvalues):
@@ -1052,6 +1285,22 @@ class TestVisualization:
         assert fig is not None
         plt.close(fig)
 
+    def test_top_rdms_shared_colorbar(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, _ = plot_top_component_rdms(
+            result_no_pvalues, k=2, include_target=True, shared_colorbar=True,
+        )
+        assert len(fig.axes) == 4  # 3 panels + 1 shared colorbar
+        plt.close(fig)
+
+    def test_top_rdms_individual_colorbars(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, _ = plot_top_component_rdms(
+            result_no_pvalues, k=2, include_target=True, shared_colorbar=False,
+        )
+        assert len(fig.axes) == 6  # 3 panels + 3 per-panel colorbars
+        plt.close(fig)
+
     # -- new: pattern normalize ------------------------------------------
 
     def test_patterns_normalize_none(self, result_no_pvalues):
@@ -1078,10 +1327,132 @@ class TestVisualization:
             plot_patterns(result_no_pvalues, normalize="bad")
 
 
+class TestMNEVisualization:
+    """Tests for the optional MNE-based visualization helpers."""
+
+    def test_pattern_topomaps_requires_mne(self, result_no_pvalues, monkeypatch):
+        def _raise():
+            raise ImportError("MNE missing")
+
+        monkeypatch.setattr("redisca.viz_mne._require_mne", _raise)
+        info = types.SimpleNamespace(ch_names=[f"Ch{i}" for i in range(result_no_pvalues.n_channels)])
+
+        with pytest.raises(ImportError, match="MNE missing"):
+            plot_pattern_topomaps(result_no_pvalues, info)
+
+    def test_pattern_topomaps_with_fake_mne(self, result_no_pvalues, monkeypatch):
+        import matplotlib; matplotlib.use("Agg")
+
+        calls = []
+
+        def fake_plot_topomap(data, info, **kwargs):
+            calls.append(
+                {
+                    "data": np.asarray(data),
+                    "info": info,
+                    "kwargs": kwargs,
+                }
+            )
+            image = kwargs["axes"].imshow(np.array([[0.0, 1.0], [1.0, 0.0]]), cmap=kwargs["cmap"])
+            return image, None
+
+        fake_mne = types.SimpleNamespace(
+            viz=types.SimpleNamespace(
+                plot_topomap=fake_plot_topomap,
+            )
+        )
+        monkeypatch.setattr("redisca.viz_mne._require_mne", lambda: fake_mne)
+
+        info = types.SimpleNamespace(ch_names=[f"Ch{i}" for i in range(result_no_pvalues.n_channels)])
+        fig, axes = plot_pattern_topomaps(result_no_pvalues, info, idxs=[0, 1], vlim="joint")
+
+        assert len(axes) == 2
+        assert len(calls) == 2
+        assert calls[0]["kwargs"]["vlim"] == calls[1]["kwargs"]["vlim"]
+        assert np.isclose(abs(calls[0]["kwargs"]["vlim"][0]), calls[0]["kwargs"]["vlim"][1])
+        plt.close(fig)
+
+    def test_pattern_topomaps_info_channel_mismatch_raises(self, result_no_pvalues, monkeypatch):
+        fake_mne = types.SimpleNamespace(
+            viz=types.SimpleNamespace(
+                plot_topomap=lambda *args, **kwargs: (kwargs["axes"].imshow(np.zeros((2, 2))), None),
+            )
+        )
+        monkeypatch.setattr("redisca.viz_mne._require_mne", lambda: fake_mne)
+
+        info = types.SimpleNamespace(ch_names=["Ch0", "Ch1"])
+        with pytest.raises(ValueError, match="channel count"):
+            plot_pattern_topomaps(result_no_pvalues, info)
+
+    def test_plot_compare_conditions_calls_mne(self, monkeypatch):
+        captured = {}
+
+        def fake_compare(evokeds, **kwargs):
+            captured["evokeds"] = evokeds
+            captured["kwargs"] = kwargs
+            return "compare-figure"
+
+        fake_mne = types.SimpleNamespace(
+            viz=types.SimpleNamespace(plot_compare_evokeds=fake_compare)
+        )
+        monkeypatch.setattr("redisca.viz_mne._require_mne", lambda: fake_mne)
+
+        out = plot_compare_conditions({"A": object()}, title="Demo")
+        assert out == "compare-figure"
+        assert captured["kwargs"]["show"] is False
+        assert captured["kwargs"]["title"] == "Demo"
+
+    def test_plot_condition_joint_calls_mne(self, monkeypatch):
+        captured = {}
+
+        def fake_joint(evoked, **kwargs):
+            captured["evoked"] = evoked
+            captured["kwargs"] = kwargs
+            return "joint-figure"
+
+        fake_mne = types.SimpleNamespace(
+            viz=types.SimpleNamespace(plot_evoked_joint=fake_joint)
+        )
+        monkeypatch.setattr("redisca.viz_mne._require_mne", lambda: fake_mne)
+
+        evoked = object()
+        out = plot_condition_joint(evoked, title="Joint")
+        assert out == "joint-figure"
+        assert captured["evoked"] is evoked
+        assert captured["kwargs"]["show"] is False
+        assert captured["kwargs"]["title"] == "Joint"
+
+
+class TestPackageImport:
+    """Tests for lightweight package import behavior."""
+
+    def test_root_import_does_not_import_matplotlib(self):
+        """`import redisca` should not eagerly import matplotlib."""
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        src_dir = Path(__file__).resolve().parents[1] / "src"
+        code = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(src_dir)!r})\n"
+            "import redisca\n"
+            "print('matplotlib' in sys.modules)\n"
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.stdout.strip() == "False"
+
+
 # =============================================================================
 # Run tests
 # =============================================================================
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

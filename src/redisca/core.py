@@ -10,7 +10,6 @@ from warnings import warn
 import numpy as np
 from numpy.typing import NDArray
 from scipy.linalg import eigh
-from scipy.stats import zscore
 
 
 def pair_indices(C: int) -> List[Tuple[int, int]]:
@@ -62,18 +61,61 @@ def compute_all_R_ij(
 
 def vectorize_upper(
         D: NDArray[np.floating],
-        pairs: list[tuple[int, int]],
+        pairs: list[tuple[int, int]] | None = None,
 ) -> NDArray[np.floating]:
     """Extract upper triangle of matrix into a vector.
 
     Args:
         D: Square matrix (C, C).
-        pairs: List of pairs (i, j).
+        pairs: Optional list of pairs (i, j). If omitted, all upper-triangular
+            pairs are derived from ``D`` automatically.
 
     Returns:
         Vector of length C*(C-1)/2.
     """
+    if D.ndim != 2 or D.shape[0] != D.shape[1]:
+        raise ValueError(f"D must be a square 2D matrix. Got shape: {D.shape}")
+
+    if pairs is None:
+        pairs = pair_indices(D.shape[0])
+
     return np.array([D[i, j] for i, j in pairs], dtype=D.dtype)
+
+
+def _zscore_with_policy(
+        vec: NDArray[np.floating],
+        *,
+        tol: float = 1e-10,
+        on_constant: str,
+) -> NDArray[np.floating] | None:
+    """Z-score a vector with explicit handling of nearly constant inputs.
+
+    Args:
+        vec: Input vector.
+        tol: Tolerance for detecting a nearly constant vector.
+        on_constant: Policy for nearly constant vectors:
+            - ``"raise"``: raise ``ValueError``
+            - ``"none"``: return ``None``
+
+    Returns:
+        Standardized vector, or ``None`` when ``on_constant="none"`` and the
+        input vector is nearly constant.
+
+    Raises:
+        ValueError: If ``on_constant="raise"`` and the vector is nearly constant.
+    """
+    std = np.std(vec, ddof=0)
+    if std < tol:
+        if on_constant == "raise":
+            raise ValueError(
+                "Standard deviation of target RDM is close to zero. "
+                "RDM is uninformative (all elements are nearly equal)."
+            )
+        if on_constant == "none":
+            return None
+        raise ValueError(f"Unsupported on_constant policy: {on_constant!r}")
+
+    return (vec - np.mean(vec)) / std
 
 
 def standardize(d_vec: NDArray[np.floating]) -> NDArray[np.floating]:
@@ -88,13 +130,7 @@ def standardize(d_vec: NDArray[np.floating]) -> NDArray[np.floating]:
     Raises:
         ValueError: If std=0 (uninformative RDM).
     """
-    std = np.std(d_vec, ddof=0)
-    if std < 1e-10:
-        raise ValueError(
-            "Standard deviation of target RDM is close to zero. "
-            "RDM is uninformative (all elements are nearly equal)."
-        )
-    return zscore(d_vec, ddof=0)
+    return _zscore_with_policy(d_vec, on_constant="raise")
 
 
 def compute_R_bar(R_list: List[NDArray[np.floating]]) -> NDArray[np.floating]:
@@ -390,23 +426,23 @@ def compute_patterns(
     """Compute source topographies (patterns) from spatial filters.
 
     Always uses the numerically stable formula:
-        A = (W.T @ R_bar @ W)^{-1} @ W.T @ R_bar
+        A = R_bar @ W @ (W.T @ R_bar @ W)^{-1}
 
     This avoids direct matrix inversion of W which is ill-conditioned.
-    The result satisfies A @ W ≈ I_r.
+    The result satisfies W.T @ A ≈ I_r.
 
     Args:
         W: Spatial filters (N, r), columns are filters.
         R_bar: Mean difference covariance matrix (N, N).
 
     Returns:
-        A: Pattern matrix (r, N), rows are topographies.
+        A: Pattern matrix (N, r), columns are topographies.
     """
     WtRW = W.T @ R_bar @ W  # (r, r)
-    WtR = W.T @ R_bar  # (r, N)
+    RW = R_bar @ W  # (N, r)
 
     try:
-        A = np.linalg.solve(WtRW, WtR)  # (r, N)
+        A = np.linalg.solve(WtRW.T, RW.T).T  # (N, r)
     except np.linalg.LinAlgError:
         # If singular, use pseudo-inverse as fallback
         warn(
@@ -415,7 +451,7 @@ def compute_patterns(
             RuntimeWarning,
             stacklevel=2,
         )
-        A = np.linalg.pinv(WtRW) @ WtR
+        A = RW @ np.linalg.pinv(WtRW)
     return A
 
 
@@ -485,22 +521,43 @@ def _standardize_or_none(
         tol: float = 1e-10,
 ) -> NDArray[np.floating] | None:
     """Return z-scored vector, or None if vector is nearly constant."""
-    std = np.std(vec, ddof=0)
-    if std < tol:
-        return None
-    return (vec - np.mean(vec)) / std
+    return _zscore_with_policy(vec, tol=tol, on_constant="none")
 
 
 def compute_pearson_scores(
         target_rdm: NDArray[np.floating],
-        pairs: list[tuple[int, int]],
-        component_rdms: NDArray[np.floating]
+        component_rdms: NDArray[np.floating] | list[tuple[int, int]],
+        pairs: list[tuple[int, int]] | NDArray[np.floating] | None = None,
 ) -> NDArray[np.floating]:
     """Compute Pearson correlation between target RDM and each component RDM.
+
+    Supports both the public API style
+        compute_pearson_scores(target_rdm, component_rdms, pairs=None)
+    and the older internal style
+        compute_pearson_scores(target_rdm, pairs, component_rdms).
 
     Target RDM must be informative: nearly constant target raises ValueError.
     Nearly constant component RDM gets score = 0.0 by design.
     """
+    # Backward-compatible support for the older argument order:
+    # compute_pearson_scores(target_rdm, pairs, component_rdms)
+    if (
+            pairs is not None
+            and isinstance(component_rdms, list)
+            and all(isinstance(pair, tuple) and len(pair) == 2 for pair in component_rdms)
+    ):
+        component_rdms, pairs = pairs, component_rdms
+
+    component_rdms = np.asarray(component_rdms, dtype=np.float64)
+    if component_rdms.ndim != 3:
+        raise ValueError(
+            "component_rdms must have shape (r, C, C). "
+            f"Got shape: {component_rdms.shape}"
+        )
+
+    if pairs is None:
+        pairs = pair_indices(target_rdm.shape[0])
+
     r = component_rdms.shape[0]
     scores = np.zeros(r, dtype=np.float64)
 

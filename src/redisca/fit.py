@@ -21,7 +21,7 @@ from .core import (
     compute_pearson_scores,
     symmetrize_matrix
 )
-from .stats import permutation_test_redisca
+from .stats import permutation_test_redisca, _validate_permutation_params
 
 
 def fit_redisca(
@@ -78,6 +78,12 @@ def fit_redisca(
         RuntimeError: If the generalized eigenvalue problem becomes
             numerically unstable or filters cannot be properly normalized.
     """
+    if not np.isfinite(tol) or float(tol) <= 0.0:
+        raise ValueError(f"tol must be a positive finite number, got {tol}")
+
+    if permutation_test:
+        _validate_permutation_params(n_perm=n_perm, alpha=alpha, tol=tol)
+
     validated = validate_inputs(X, target_rdm)
     X = validated.X
     target_rdm = validated.D
@@ -100,7 +106,7 @@ def fit_redisca(
     A = compute_patterns(W, R_bar)
     component_timeseries = compute_component_timeseries(W, X)
     component_rdms = compute_component_rdms(W, R_list, pairs, C)
-    pearson_scores = compute_pearson_scores(target_rdm, pairs, component_rdms)
+    pearson_scores = compute_pearson_scores(target_rdm, component_rdms, pairs=pairs)
 
     r = W.shape[1]
 
