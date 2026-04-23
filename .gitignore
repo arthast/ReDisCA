@@ -42,3 +42,10 @@ Thumbs.db
 # Term-Paper
 Term-Paper/
 .Term-Paper/
+
+# graphics
+examples/figures
+examples/output
+redisca_output
+
+main.py
