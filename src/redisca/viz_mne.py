@@ -137,7 +137,8 @@ def plot_pattern_topomaps(
     else:
         raise ValueError("vlim must be None, a (vmin, vmax) tuple, or 'joint'")
 
-    fig, axes = plt.subplots(1, len(idxs), figsize=(4 * len(idxs), 4), squeeze=False)
+    fig_width = 4.5 * len(idxs) + (0.8 if colorbar else 0.0)
+    fig, axes = plt.subplots(1, len(idxs), figsize=(fig_width, 4), squeeze=False)
     axes = axes.ravel()
 
     image = None
@@ -165,7 +166,7 @@ def plot_pattern_topomaps(
         axes[panel].set_title("\n".join(title_parts))
 
     if colorbar and image is not None:
-        cbar = fig.colorbar(image, ax=axes, fraction=0.03, pad=0.03)
+        cbar = fig.colorbar(image, ax=axes, fraction=0.026, pad=0.08)
         if normalize == "maxabs":
             cbar.set_label("Pattern weight (maxabs-normalized)")
         elif normalize == "zscore":
@@ -174,7 +175,7 @@ def plot_pattern_topomaps(
             cbar.set_label("Pattern weight")
 
     if colorbar:
-        fig.subplots_adjust(left=0.06, right=0.92, bottom=0.08, top=0.84, wspace=0.35)
+        fig.subplots_adjust(left=0.04, right=0.84, bottom=0.08, top=0.84, wspace=0.60)
     else:
         fig.tight_layout()
     _maybe_save_figure(fig, save_path, dpi)

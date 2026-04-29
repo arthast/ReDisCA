@@ -20,6 +20,7 @@ from redisca.viz import (
     plot_component_timeseries,
     plot_patterns,
 )
+from redisca.viz_mne import plot_pattern_topomaps
 
 FIGURES_DIR = Path(__file__).parent / "figures"
 EXPORT_DIR = Path(__file__).parent / "output"
@@ -95,10 +96,43 @@ def make_synthetic_data(
     return X, target_rdm
 
 
+def make_synthetic_mne_info(N: int, sfreq: float = 300.0):
+    """Create an illustrative EEG ``Info`` object for synthetic topomaps.
+
+    The generated data are not tied to real electrode coordinates.  The montage
+    is used only to make the synthetic pattern visualization spatially readable.
+    """
+    try:
+        import mne
+    except ImportError:
+        return None, [f"Ch{i}" for i in range(N)]
+
+    montage = mne.channels.make_standard_montage("standard_1020")
+    preferred = [
+        "Fp1", "Fp2", "F7", "F3", "Fz", "F4", "F8", "T7",
+        "C3", "Cz", "C4", "T8", "P7", "P3", "Pz", "P4",
+        "P8", "O1", "Oz", "O2",
+    ]
+    ch_names = [name for name in preferred if name in montage.ch_names]
+    for name in montage.ch_names:
+        if len(ch_names) >= N:
+            break
+        if name not in ch_names:
+            ch_names.append(name)
+
+    ch_names = ch_names[:N]
+    if len(ch_names) != N:
+        return None, [f"Ch{i}" for i in range(N)]
+
+    info = mne.create_info(ch_names=ch_names, sfreq=sfreq, ch_types="eeg")
+    info.set_montage(montage, match_case=False)
+    return info, ch_names
+
+
 def main() -> None:
     # --- data -----------------------------------------------------------
     X, target_rdm = make_synthetic_data()
-    channel_names = [f"Ch{i}" for i in range(X.shape[1])]
+    info, channel_names = make_synthetic_mne_info(X.shape[1])
 
     # --- fit ------------------------------------------------------------
     result = fit_redisca(
@@ -140,6 +174,7 @@ def main() -> None:
     # --- 4. Component time series for top 3 components ------------------
     plot_component_timeseries(
         result, idxs=[0, 1, 2],
+        condition_layout="separate",
         save_path=FIGURES_DIR / "component_timeseries.png",
     )
 
@@ -148,6 +183,16 @@ def main() -> None:
         result, idxs=[0, 1, 2], channel_names=channel_names,
         save_path=FIGURES_DIR / "patterns.png",
     )
+
+    if info is not None:
+        plot_pattern_topomaps(
+            result,
+            info,
+            idxs=[0, 1, 2],
+            save_path=FIGURES_DIR / "mne_pattern_topomaps.png",
+        )
+    else:
+        print("MNE is not installed; skipping synthetic topomap figure.")
 
     exported = export_result(result, EXPORT_DIR)
 

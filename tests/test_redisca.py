@@ -1189,6 +1189,25 @@ class TestVisualization:
         assert len(fig.legends) == 1
         plt.close(fig)
 
+    def test_component_timeseries_separate_conditions(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, axes = plot_component_timeseries(
+            result_no_pvalues,
+            idxs=[0, 1],
+            condition_layout="separate",
+        )
+        assert axes.shape == (2, result_no_pvalues.n_conditions)
+        assert all(len(ax.lines) >= 2 for ax in axes.ravel())
+        plt.close(fig)
+
+    def test_component_timeseries_bad_condition_layout(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        with pytest.raises(ValueError, match="condition_layout"):
+            plot_component_timeseries(
+                result_no_pvalues,
+                condition_layout="bad",
+            )
+
     def test_component_timeseries_bad_time_len(self, result_no_pvalues):
         import matplotlib; matplotlib.use("Agg")
         with pytest.raises(ValueError, match="time must have shape"):
