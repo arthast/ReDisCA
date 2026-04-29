@@ -77,3 +77,79 @@ class ValidationResult:
     n_channels: int
     n_timepoints: int
     n_pairs: int
+
+
+@dataclass
+class SlidingWindowReDisCAResult:
+    """Collection of ReDisCA fits computed over sliding time windows.
+
+    Attributes:
+        results: Per-window ReDisCA fits ordered from left to right.
+        window_starts: Inclusive window start indices of shape ``(n_windows,)``.
+        window_stops: Exclusive window stop indices of shape ``(n_windows,)``.
+        window_centers: Window centers either in samples or in the user-provided
+            time units, shape ``(n_windows,)``.
+        sample_times: Optional original time axis of shape ``(T,)`` used to
+            compute ``window_centers``.
+    """
+
+    results: list[ReDisCAResult]
+    window_starts: NDArray[np.integer]
+    window_stops: NDArray[np.integer]
+    window_centers: NDArray[np.floating]
+    sample_times: Optional[NDArray[np.floating]] = None
+
+    @property
+    def n_windows(self) -> int:
+        """Number of fitted windows."""
+        return len(self.results)
+
+    def component_metric_matrix(
+        self,
+        attr: str,
+        *,
+        max_components: int | None = None,
+        fill_value: float = np.nan,
+    ) -> NDArray[np.floating]:
+        """Stack a 1-D per-component attribute across windows.
+
+        Args:
+            attr: Name of a ``ReDisCAResult`` attribute such as
+                ``"pearson_scores"``, ``"lambdas"``, or ``"p_values"``.
+            max_components: Optional maximum number of rows in the output.
+                Defaults to the maximum number of components observed across
+                all windows.
+            fill_value: Value used where a window has fewer components or where
+                the requested attribute is ``None``.
+
+        Returns:
+            Array of shape ``(max_components, n_windows)``.
+
+        Raises:
+            AttributeError: If ``attr`` is not present on ``ReDisCAResult``.
+            ValueError: If the attribute is not 1-D when present.
+        """
+        if max_components is None:
+            max_components = max(result.n_components for result in self.results)
+
+        out = np.full(
+            (max_components, self.n_windows),
+            fill_value,
+            dtype=np.float64,
+        )
+
+        for window_idx, result in enumerate(self.results):
+            values = getattr(result, attr)
+            if values is None:
+                continue
+
+            arr = np.asarray(values, dtype=np.float64)
+            if arr.ndim != 1:
+                raise ValueError(
+                    f"Attribute {attr!r} must be 1-D per result, got shape {arr.shape}."
+                )
+
+            n_rows = min(max_components, arr.shape[0])
+            out[:n_rows, window_idx] = arr[:n_rows]
+
+        return out

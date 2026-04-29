@@ -46,6 +46,10 @@ Term-Paper/
 # graphics
 examples/figures
 examples/output
+examples/data/
+examples/repro_outputs/
 redisca_output
 
 main.py
+.main.py
+/main.py

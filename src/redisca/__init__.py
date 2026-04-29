@@ -14,17 +14,25 @@ from .fit import fit_redisca
 from .core import compute_pearson_scores
 from .export import export_result
 from .stats import permutation_test_redisca
-from .types import ReDisCAResult, ValidationResult, PermutationTestResult
+from .types import (
+    ReDisCAResult,
+    SlidingWindowReDisCAResult,
+    ValidationResult,
+    PermutationTestResult,
+)
 from .validation import validate_inputs
+from .windowed import sliding_window_fit_redisca
 
 __all__ = [
     "__version__",
     "fit_redisca",
+    "sliding_window_fit_redisca",
     "compute_pearson_scores",
     "export_result",
     "permutation_test_redisca",
     "PermutationTestResult",
     "ReDisCAResult",
+    "SlidingWindowReDisCAResult",
     "ValidationResult",
     "validate_inputs",
 ]
