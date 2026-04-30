@@ -144,7 +144,7 @@ def permutation_test_redisca(
         attempts += 1
         perm = rng.permutation(C)
 
-        # Skip the identity permutation (optional but cleaner)
+        # Skip the identity permutation
         if np.array_equal(perm, np.arange(C)):
             continue
 
@@ -163,7 +163,7 @@ def permutation_test_redisca(
         null_max_lambdas[collected] = lam_max
         collected += 1
 
-    # p-values using the +1 correction (North et al., 2002)
+    # p-values using the +1 correction
     r = len(observed_lambdas)
     p_values = np.empty(r, dtype=np.float64)
     for k in range(r):
