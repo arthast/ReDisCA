@@ -53,7 +53,8 @@ The script produces:
 3. **Eigenvalue (λ) spectrum** (`plot_component_lambdas`)
 4. **Component time series** by condition (`plot_component_timeseries`)
 5. **Spatial pattern weights** per channel for the top 3 components (`plot_patterns`)
-6. **Export bundle** with arrays, summary CSV, and metadata JSON (`export_result`)
+6. **MNE topomap** of synthetic spatial patterns when `mne` is installed (`plot_pattern_topomaps`)
+7. **Export bundle** with arrays, summary CSV, and metadata JSON (`export_result`)
 
 All visualization functions return `(fig, ax)` / `(fig, axes)` and can be
 used standalone:
@@ -69,6 +70,11 @@ from redisca.viz import (
 fig, axes = plot_top_component_rdms(result, k=3)
 fig, ax   = plot_component_scores(result, show_p=True)
 fig, axes = plot_component_timeseries(result, idxs=[0, 1])
+fig, axes = plot_component_timeseries(
+    result,
+    idxs=[0, 1],
+    condition_layout="separate",
+)
 paths = export_result(result, "redisca_output")
 ```
 
