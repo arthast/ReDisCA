@@ -179,7 +179,13 @@ def plot_top_component_rdms(
     shared_vmax = max(float(np.max(M)) for M in display_mats)
 
     n_panels = k + int(include_target)
-    fig, axes = plt.subplots(1, n_panels, figsize=(3.5 * n_panels, 3.5))
+    fig_width = 3.7 * n_panels + (0.5 if shared_colorbar else 0.0)
+    fig, axes = plt.subplots(
+        1,
+        n_panels,
+        figsize=(fig_width, 3.7),
+        constrained_layout=True,
+    )
     if n_panels == 1:
         axes = np.array([axes])
 
@@ -217,13 +223,15 @@ def plot_top_component_rdms(
 
     if shared_colorbar and images:
         label = "Normalized dissimilarity" if normalize_rdms else "Dissimilarity"
-        cbar = fig.colorbar(images[-1], ax=axes, fraction=0.025, pad=0.02)
+        cbar = fig.colorbar(
+            images[-1],
+            ax=axes,
+            fraction=0.03,
+            pad=0.04,
+            shrink=0.86,
+        )
         cbar.set_label(label)
 
-    if shared_colorbar:
-        fig.subplots_adjust(left=0.06, right=0.92, bottom=0.14, top=0.84, wspace=0.35)
-    else:
-        fig.tight_layout()
     _maybe_save(fig, save_path, dpi)
     return fig, axes
 
@@ -356,6 +364,7 @@ def plot_component_timeseries(
     condition_names: Sequence[str] | None = None,
     legend: str = "auto",
     sharey: bool = True,
+    condition_layout: str = "overlay",
     save_path: str | Path | None = None,
     dpi: int = 150,
 ) -> tuple[Figure, np.ndarray]:
@@ -380,11 +389,16 @@ def plot_component_timeseries(
         legend: ``"auto"`` (default), ``"axes"``, ``"figure"``, or
             ``"none"``.
         sharey: Whether component panels should share the y-axis.
+        condition_layout: ``"overlay"`` (default) plots all conditions for a
+            component on the same axes. ``"separate"`` creates a grid with
+            one subplot per component/condition pair for less crowded figures.
         save_path: If given, save the figure to this file path.
         dpi: Resolution for saved figure (default 150).
 
     Returns:
-        ``(fig, axes)`` where *axes* is a 1-D numpy array of ``Axes``.
+        ``(fig, axes)`` where *axes* is a 1-D numpy array in ``"overlay"``
+        mode and a 2-D array with shape ``(n_components, n_conditions)`` in
+        ``"separate"`` mode.
     """
     C, r, T = result.component_timeseries.shape
 
@@ -434,6 +448,65 @@ def plot_component_timeseries(
         raise ValueError(
             f"legend must be 'auto', 'axes', 'figure', or 'none', got '{legend}'"
         )
+
+    if condition_layout not in ("overlay", "separate"):
+        raise ValueError(
+            "condition_layout must be 'overlay' or 'separate', "
+            f"got '{condition_layout}'"
+        )
+
+    if condition_layout == "separate":
+        fig, axes = plt.subplots(
+            len(idxs),
+            C,
+            figsize=(max(3.0 * C, 6.0), max(2.4 * len(idxs), 2.8)),
+            squeeze=False,
+            sharex=True,
+            sharey=sharey,
+            constrained_layout=True,
+        )
+
+        colours = plt.rcParams["axes.prop_cycle"].by_key().get("color", [])
+        for row, comp_idx in enumerate(idxs):
+            for cond_idx in range(C):
+                ax_cur = axes[row, cond_idx]
+                color = colours[cond_idx % len(colours)] if colours else None
+                ax_cur.plot(
+                    x,
+                    result.component_timeseries[cond_idx, comp_idx],
+                    linewidth=1.5,
+                    color=color,
+                )
+
+                if show_time_zero and time is not None and x[0] <= 0.0 <= x[-1]:
+                    ax_cur.axvline(0.0, color="black", linewidth=0.8, linestyle=":")
+
+                ax_cur.axhline(0, color="grey", linewidth=0.5, linestyle="--")
+
+                if row == 0:
+                    ax_cur.set_title(condition_names[cond_idx])
+                if row == len(idxs) - 1:
+                    ax_cur.set_xlabel(x_label)
+                if cond_idx == 0:
+                    ylabel = f"Comp {comp_idx}\nAmplitude"
+                    ax_cur.set_ylabel(ylabel)
+
+                stats_text = f"lambda={result.lambdas[comp_idx]:.3f}\nr={result.pearson_scores[comp_idx]:.3f}"
+                if result.p_values is not None:
+                    stats_text += f"\np={result.p_values[comp_idx]:.3f}"
+                if cond_idx == C - 1:
+                    ax_cur.text(
+                        1.02,
+                        0.5,
+                        stats_text,
+                        transform=ax_cur.transAxes,
+                        va="center",
+                        ha="left",
+                        fontsize=8,
+                    )
+
+        _maybe_save(fig, save_path, dpi)
+        return fig, axes
 
     legend_mode = legend
     if legend_mode == "auto":

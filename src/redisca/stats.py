@@ -9,6 +9,7 @@ a null distribution of the max eigenvalue (lambda_max) across permutations.
 from __future__ import annotations
 
 from typing import List
+from warnings import warn
 
 import numpy as np
 from numpy.typing import NDArray
@@ -97,10 +98,13 @@ def permutation_test_redisca(
     """Run a permutation test on ReDisCA components.
 
     The test permutes condition labels to build a null distribution of
-    ``lambda_max`` (the largest eigenvalue from each permutation).  For
-    each observed ``lambda_k`` the p-value is
+    ``lambda_max`` (the largest eigenvalue from each permutation). If the
+    requested number of valid permutations cannot be collected within the
+    attempt budget, the test falls back to the valid permutations collected so
+    far and emits a warning instead of failing. For each observed ``lambda_k``
+    the p-value is
 
-        p_k = (1 + #{b : lambda_max^{(b)} >= lambda_k}) / (n_perm + 1)
+        p_k = (1 + #{b : lambda_max^{(b)} >= lambda_k}) / (n_valid + 1)
 
     This is a *max-statistic* approach that controls the family-wise error
     rate across components.
@@ -111,7 +115,7 @@ def permutation_test_redisca(
         target_rdm: Target RDM (C, C).
         observed_lambdas: Eigenvalues from the original fit (r,), sorted
             descending.
-        n_perm: Number of permutations (default 1000).
+        n_perm: Requested number of valid permutations (default 1000).
         rank: Rank parameter forwarded to ``solve_gep``.
         tol: Tolerance forwarded to ``solve_gep``.
         alpha: Significance level (default 0.05).
@@ -136,15 +140,19 @@ def permutation_test_redisca(
     attempts = 0
     while collected < n_perm:
         if attempts >= max_attempts:
-            raise RuntimeError(
-                f"Permutation test failed: only {collected}/{n_perm} valid "
-                f"permutations after {max_attempts} attempts. The target RDM "
-                f"may be too degenerate for this number of conditions (C={C})."
+            warn(
+                f"Permutation test collected only {collected}/{n_perm} valid "
+                f"permutations after {max_attempts} attempts. Returning p-values "
+                "based on the collected null distribution. The target RDM may "
+                f"be too degenerate for this number of conditions (C={C}).",
+                RuntimeWarning,
+                stacklevel=2,
             )
+            break
         attempts += 1
         perm = rng.permutation(C)
 
-        # Skip the identity permutation (optional but cleaner)
+        # Skip the identity permutation
         if np.array_equal(perm, np.arange(C)):
             continue
 
@@ -163,11 +171,24 @@ def permutation_test_redisca(
         null_max_lambdas[collected] = lam_max
         collected += 1
 
-    # p-values using the +1 correction (North et al., 2002)
+    null_max_lambdas = null_max_lambdas[:collected]
+
+    # p-values using the +1 correction
     r = len(observed_lambdas)
     p_values = np.empty(r, dtype=np.float64)
-    for k in range(r):
-        p_values[k] = (1 + np.sum(null_max_lambdas >= observed_lambdas[k])) / (n_perm + 1)
+    if collected == 0:
+        warn(
+            "Permutation test collected no valid permutations. Returning "
+            "conservative p-values equal to 1.0 for all components.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        p_values.fill(1.0)
+    else:
+        for k in range(r):
+            p_values[k] = (
+                1 + np.sum(null_max_lambdas >= observed_lambdas[k])
+            ) / (collected + 1)
 
     significant = p_values < alpha
 
@@ -176,4 +197,3 @@ def permutation_test_redisca(
         significant=significant,
         null_max_lambdas=null_max_lambdas if return_null else None,
     )
-

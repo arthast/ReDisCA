@@ -909,6 +909,81 @@ class TestPermutationTest:
         )
         assert perm_result.null_max_lambdas is None
 
+    def test_partial_collection_returns_available_null(self, small_data, monkeypatch):
+        """If too few valid permutations are collected, use them with a warning."""
+        X, target_rdm = small_data
+        C, N, T = X.shape
+
+        pairs = pair_indices(C)
+        R_list = compute_all_R_ij(X, pairs)
+        R_bar = compute_R_bar(R_list)
+
+        calls = {"count": 0}
+
+        def fake_max_lambda(*args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                return 1.0
+            if calls["count"] == 2:
+                return 2.0
+            raise ValueError("forced invalid permutation")
+
+        monkeypatch.setattr(
+            "redisca.stats._max_lambda_for_permuted_rdm",
+            fake_max_lambda,
+        )
+
+        with pytest.warns(RuntimeWarning, match="only 2/4 valid"):
+            perm_result = permutation_test_redisca(
+                R_list=R_list,
+                R_bar=R_bar,
+                target_rdm=target_rdm,
+                observed_lambdas=np.array([0.5, 1.5]),
+                n_perm=4,
+                random_state=0,
+                return_null=True,
+            )
+
+        assert perm_result.null_max_lambdas is not None
+        assert_array_equal(perm_result.null_max_lambdas, np.array([1.0, 2.0]))
+        assert_allclose(perm_result.p_values, np.array([1.0, 2.0 / 3.0]))
+        assert_array_equal(perm_result.significant, np.array([False, False]))
+
+    def test_zero_valid_permutations_returns_conservative_pvalues(
+        self, small_data, monkeypatch
+    ):
+        """If no valid null samples exist, return p=1 instead of crashing."""
+        X, target_rdm = small_data
+        C, N, T = X.shape
+
+        pairs = pair_indices(C)
+        R_list = compute_all_R_ij(X, pairs)
+        R_bar = compute_R_bar(R_list)
+
+        def fake_max_lambda(*args, **kwargs):
+            raise ValueError("forced invalid permutation")
+
+        monkeypatch.setattr(
+            "redisca.stats._max_lambda_for_permuted_rdm",
+            fake_max_lambda,
+        )
+
+        with pytest.warns(RuntimeWarning):
+            perm_result = permutation_test_redisca(
+                R_list=R_list,
+                R_bar=R_bar,
+                target_rdm=target_rdm,
+                observed_lambdas=np.array([0.5, 1.5]),
+                n_perm=1,
+                random_state=0,
+                return_null=True,
+            )
+
+        assert perm_result.null_max_lambdas is not None
+        assert perm_result.null_max_lambdas.shape == (0,)
+        assert_allclose(perm_result.p_values, np.array([1.0, 1.0]))
+        assert_array_equal(perm_result.significant, np.array([False, False]))
+
     @pytest.mark.parametrize(
         ("kwargs", "match"),
         [
@@ -1188,6 +1263,25 @@ class TestVisualization:
         )
         assert len(fig.legends) == 1
         plt.close(fig)
+
+    def test_component_timeseries_separate_conditions(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        fig, axes = plot_component_timeseries(
+            result_no_pvalues,
+            idxs=[0, 1],
+            condition_layout="separate",
+        )
+        assert axes.shape == (2, result_no_pvalues.n_conditions)
+        assert all(len(ax.lines) >= 2 for ax in axes.ravel())
+        plt.close(fig)
+
+    def test_component_timeseries_bad_condition_layout(self, result_no_pvalues):
+        import matplotlib; matplotlib.use("Agg")
+        with pytest.raises(ValueError, match="condition_layout"):
+            plot_component_timeseries(
+                result_no_pvalues,
+                condition_layout="bad",
+            )
 
     def test_component_timeseries_bad_time_len(self, result_no_pvalues):
         import matplotlib; matplotlib.use("Agg")
