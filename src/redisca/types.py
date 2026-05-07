@@ -1,7 +1,9 @@
 """Data types for the ReDisCA library."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 import numpy as np
 from numpy.typing import NDArray
 
@@ -153,3 +155,59 @@ class SlidingWindowReDisCAResult:
             out[:n_rows, window_idx] = arr[:n_rows]
 
         return out
+
+
+@dataclass
+class EvokedReDisCAResult:
+    """ReDisCA fit together with MNE evoked metadata.
+
+    The wrapped ``result`` is still the regular :class:`ReDisCAResult`.
+    Attribute access falls through to it, so ``analysis.pearson_scores`` works
+    the same as ``analysis.result.pearson_scores``.
+    """
+
+    result: ReDisCAResult
+    times: NDArray[np.float64]
+    info: Any
+    condition_order: list[str]
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            result = self.__dict__["result"]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+        return getattr(result, name)
+
+
+@dataclass
+class EvokedSlidingWindowReDisCAResult:
+    """Sliding-window ReDisCA scan together with MNE evoked metadata."""
+
+    scan: SlidingWindowReDisCAResult
+    times: NDArray[np.float64]
+    info: Any
+    condition_order: list[str]
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            scan = self.__dict__["scan"]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+        return getattr(scan, name)
+
+    def best_window_index(self, *, component: int = 0) -> int:
+        """Return the best window index for a component."""
+        from .windowed import best_window_index
+
+        return best_window_index(self.scan, component=component)
+
+    def best_result(self, *, component: int = 0) -> ReDisCAResult:
+        """Return the ReDisCA fit from the best window for a component."""
+        return self.scan.results[self.best_window_index(component=component)]
+
+    def best_window_times(self, *, component: int = 0) -> NDArray[np.float64]:
+        """Return the original MNE time samples in the best window."""
+        idx = self.best_window_index(component=component)
+        start = self.scan.window_starts[idx]
+        stop = self.scan.window_stops[idx]
+        return self.times[start:stop]

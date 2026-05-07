@@ -9,18 +9,16 @@ from numpy.typing import NDArray
 
 from .fit import fit_redisca
 from .types import ReDisCAResult, SlidingWindowReDisCAResult
-from .validation import validate_inputs
+from .validation import validate_inputs, validate_positive_int
 
 
-def _validate_positive_int(value: int, *, name: str) -> int:
-    """Validate a strictly positive integer parameter."""
-    if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
-        raise TypeError(f"{name} must be a positive integer, got {type(value).__name__}")
-
-    value = int(value)
-    if value < 1:
-        raise ValueError(f"{name} must be >= 1, got {value}")
-    return value
+def ms_to_samples(duration_ms: float, sfreq: float) -> int:
+    """Convert a positive millisecond duration to the nearest sample count."""
+    if not np.isfinite(duration_ms) or float(duration_ms) <= 0.0:
+        raise ValueError(f"duration_ms must be positive and finite, got {duration_ms}")
+    if not np.isfinite(sfreq) or float(sfreq) <= 0.0:
+        raise ValueError(f"sfreq must be positive and finite, got {sfreq}")
+    return max(1, int(round(float(duration_ms) * float(sfreq) / 1000.0)))
 
 
 def sliding_window_fit_redisca(
@@ -65,8 +63,8 @@ def sliding_window_fit_redisca(
         TypeError: If window parameters are not integers.
         ValueError: If the scan bounds are invalid or no windows fit.
     """
-    window_size = _validate_positive_int(window_size, name="window_size")
-    step_size = _validate_positive_int(step_size, name="step_size")
+    window_size = validate_positive_int(window_size, name="window_size")
+    step_size = validate_positive_int(step_size, name="step_size")
 
     validated = validate_inputs(X, target_rdm)
     X_valid = validated.X
@@ -139,6 +137,70 @@ def sliding_window_fit_redisca(
     )
 
 
+def sliding_window_fit_redisca_ms(
+    X: NDArray[np.floating] | list[NDArray[np.floating]],
+    target_rdm: NDArray[np.floating],
+    *,
+    sfreq: float,
+    window_ms: float,
+    step_ms: float = 1.0,
+    start: int = 0,
+    stop: int | None = None,
+    times: NDArray[np.floating] | None = None,
+    rank: int | str | None = "auto",
+    tol: float = 1e-10,
+    permutation_test: bool = False,
+    n_perm: int = 1000,
+    alpha: float = 0.05,
+    random_state: int | None = None,
+) -> SlidingWindowReDisCAResult:
+    """Fit ReDisCA over sliding windows specified in milliseconds."""
+    return sliding_window_fit_redisca(
+        X,
+        target_rdm,
+        window_size=ms_to_samples(window_ms, sfreq),
+        step_size=ms_to_samples(step_ms, sfreq),
+        start=start,
+        stop=stop,
+        times=times,
+        rank=rank,
+        tol=tol,
+        permutation_test=permutation_test,
+        n_perm=n_perm,
+        alpha=alpha,
+        random_state=random_state,
+    )
+
+
+def best_window_index(
+    scan: SlidingWindowReDisCAResult,
+    *,
+    component: int = 0,
+) -> int:
+    """Pick the best window for a component.
+
+    Preference order:
+    1. Lowest finite p-value for the requested component.
+    2. Highest Pearson score if p-values are unavailable.
+    """
+    if isinstance(component, (bool, np.bool_)) or not isinstance(component, (int, np.integer)):
+        raise TypeError(f"component must be a non-negative integer, got {type(component).__name__}")
+    component = int(component)
+    if component < 0:
+        raise ValueError(f"component must be >= 0, got {component}")
+
+    p_values = scan.component_metric_matrix("p_values", max_components=component + 1)
+    row = p_values[component]
+    if np.isfinite(row).any():
+        return int(np.nanargmin(row))
+
+    pearson = scan.component_metric_matrix("pearson_scores", max_components=component + 1)
+    return int(np.nanargmax(pearson[component]))
+
+
 __all__ = [
+    "best_window_index",
+    "ms_to_samples",
     "sliding_window_fit_redisca",
+    "sliding_window_fit_redisca_ms",
 ]

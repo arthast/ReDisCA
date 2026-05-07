@@ -16,6 +16,7 @@ from numpy.typing import NDArray
 from scipy.linalg import LinAlgError as SciPyLinAlgError
 
 from .types import PermutationTestResult
+from .validation import validate_permutation_params
 from .core import (
     vectorize_upper,
     standardize,
@@ -23,29 +24,6 @@ from .core import (
     solve_gep,
     pair_indices
 )
-
-
-def _validate_permutation_params(
-    n_perm: int,
-    alpha: float,
-    tol: float,
-) -> None:
-    """Validate statistical inference parameters."""
-    if isinstance(n_perm, (bool, np.bool_)) or not isinstance(n_perm, (int, np.integer)):
-        raise TypeError(
-            "n_perm must be a positive integer, got "
-            f"{type(n_perm).__name__}"
-        )
-    if int(n_perm) < 1:
-        raise ValueError(f"n_perm must be >= 1, got {n_perm}")
-
-    if not np.isfinite(alpha) or not (0.0 < float(alpha) < 1.0):
-        raise ValueError(f"alpha must satisfy 0 < alpha < 1, got {alpha}")
-
-    if not np.isfinite(tol) or float(tol) <= 0.0:
-        raise ValueError(f"tol must be a positive finite number, got {tol}")
-
-
 
 def _permute_rdm(
     D: NDArray[np.floating],
@@ -127,7 +105,7 @@ def permutation_test_redisca(
         PermutationTestResult with p-values, significance mask, and
         optionally the null distribution.
     """
-    _validate_permutation_params(n_perm=n_perm, alpha=alpha, tol=tol)
+    validate_permutation_params(n_perm=n_perm, alpha=alpha, tol=tol)
 
     C = target_rdm.shape[0]
     pairs = pair_indices(C)

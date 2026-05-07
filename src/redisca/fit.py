@@ -6,7 +6,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .types import ReDisCAResult
-from .validation import validate_inputs
+from .validation import validate_inputs, validate_permutation_params
 from .core import (
     pair_indices,
     compute_all_R_ij,
@@ -21,7 +21,7 @@ from .core import (
     compute_pearson_scores,
     symmetrize_matrix
 )
-from .stats import permutation_test_redisca, _validate_permutation_params
+from .stats import permutation_test_redisca
 
 
 def fit_redisca(
@@ -82,7 +82,7 @@ def fit_redisca(
         raise ValueError(f"tol must be a positive finite number, got {tol}")
 
     if permutation_test:
-        _validate_permutation_params(n_perm=n_perm, alpha=alpha, tol=tol)
+        validate_permutation_params(n_perm=n_perm, alpha=alpha, tol=tol)
 
     validated = validate_inputs(X, target_rdm)
     X = validated.X

@@ -44,6 +44,7 @@ def plot_rdm(
     vmax: float | None = None,
     show_values: bool = False,
     cmap: str = "viridis",
+    condition_names: Sequence[str] | None = None,
     colorbar: bool = True,
     save_path: str | Path | None = None,
     dpi: int = 150,
@@ -57,6 +58,7 @@ def plot_rdm(
         vmin, vmax: Colour-scale limits.
         show_values: If *True*, annotate each cell with its numeric value.
         cmap: Matplotlib colormap name.
+        condition_names: Optional labels for the RDM rows/columns.
         colorbar: If *True*, add a colorbar to the axes.
         save_path: If given, save the figure to this file path.
         dpi: Resolution for saved figure (default 150).
@@ -79,8 +81,17 @@ def plot_rdm(
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
     C = matrix.shape[0]
+    if condition_names is None:
+        condition_names = [str(i) for i in range(C)]
+    elif len(condition_names) != C:
+        raise ValueError(
+            f"len(condition_names)={len(condition_names)} != matrix size {C}"
+        )
+
     ax.set_xticks(range(C))
     ax.set_yticks(range(C))
+    ax.set_xticklabels(condition_names, rotation=35, ha="right")
+    ax.set_yticklabels(condition_names)
     ax.set_xlabel("Condition")
     ax.set_ylabel("Condition")
 
@@ -111,6 +122,7 @@ def plot_top_component_rdms(
     shared_colorbar: bool = True,
     show_values: bool = False,
     cmap: str = "viridis",
+    condition_names: Sequence[str] | None = None,
     save_path: str | Path | None = None,
     dpi: int = 150,
 ) -> tuple[Figure, np.ndarray]:
@@ -134,6 +146,7 @@ def plot_top_component_rdms(
             for the whole figure. Disable to give each panel its own.
         show_values: Annotate cells with numeric values.
         cmap: Matplotlib colormap name.
+        condition_names: Optional labels for RDM rows/columns.
         save_path: If given, save the figure to this file path.
         dpi: Resolution for saved figure (default 150).
 
@@ -198,6 +211,7 @@ def plot_top_component_rdms(
             display_mats[0], ax=axes[col],
             title="Target RDM", show_values=show_values, cmap=cmap,
             vmin=shared_vmin, vmax=shared_vmax,
+            condition_names=condition_names,
             colorbar=not shared_colorbar,
         )
         images.append(axes[col].images[-1])
@@ -216,6 +230,7 @@ def plot_top_component_rdms(
             comp_display[ci], ax=axes[col],
             title=title, show_values=show_values, cmap=cmap,
             vmin=shared_vmin, vmax=shared_vmax,
+            condition_names=condition_names,
             colorbar=not shared_colorbar,
         )
         images.append(axes[col].images[-1])
@@ -365,6 +380,7 @@ def plot_component_timeseries(
     legend: str = "auto",
     sharey: bool = True,
     condition_layout: str = "overlay",
+    highlight_interval: tuple[float, float] | None = None,
     save_path: str | Path | None = None,
     dpi: int = 150,
 ) -> tuple[Figure, np.ndarray]:
@@ -392,6 +408,8 @@ def plot_component_timeseries(
         condition_layout: ``"overlay"`` (default) plots all conditions for a
             component on the same axes. ``"separate"`` creates a grid with
             one subplot per component/condition pair for less crowded figures.
+        highlight_interval: Optional ``(start, stop)`` interval in displayed
+            x-axis units to shade on every panel.
         save_path: If given, save the figure to this file path.
         dpi: Resolution for saved figure (default 150).
 
@@ -481,6 +499,15 @@ def plot_component_timeseries(
                 if show_time_zero and time is not None and x[0] <= 0.0 <= x[-1]:
                     ax_cur.axvline(0.0, color="black", linewidth=0.8, linestyle=":")
 
+                if highlight_interval is not None:
+                    ax_cur.axvspan(
+                        highlight_interval[0],
+                        highlight_interval[1],
+                        color="grey",
+                        alpha=0.12,
+                        linewidth=0,
+                    )
+
                 ax_cur.axhline(0, color="grey", linewidth=0.5, linestyle="--")
 
                 if row == 0:
@@ -535,6 +562,15 @@ def plot_component_timeseries(
 
         if show_time_zero and time is not None and x[0] <= 0.0 <= x[-1]:
             ax_cur.axvline(0.0, color="black", linewidth=0.8, linestyle=":")
+
+        if highlight_interval is not None:
+            ax_cur.axvspan(
+                highlight_interval[0],
+                highlight_interval[1],
+                color="grey",
+                alpha=0.12,
+                linewidth=0,
+            )
 
         title_parts = [f"Component {comp_idx}"]
         title_parts.append(f"λ={result.lambdas[comp_idx]:.3f}")

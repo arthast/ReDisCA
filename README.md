@@ -1,43 +1,87 @@
 # ReDisCA
-Realization of algorithm Representational dissimilarity component analysis
+
+ReDisCA is a Python implementation of Representational Dissimilarity Component
+Analysis for EEG/MEG-style evoked responses.
+
+The library finds spatial components whose condition-to-condition
+dissimilarity structure matches a user-defined target RDM.
 
 ## Installation
 
 ```bash
-pip install -e .
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
 ```
 
-Optional MNE-based sensor/topomap visualizations:
+For tests:
 
 ```bash
-pip install -e ".[mne]"
+.venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/python -m pytest
 ```
 
-## Quick start
+For MNE topomaps and EEG/MEG example scripts:
+
+```bash
+.venv/bin/python -m pip install -e ".[mne]"
+```
+
+All example commands below assume the same project environment. If `python3`
+does not see MNE on your machine, use `.venv/bin/python`.
+
+## Data Shape
+
+The core API expects averaged evoked responses:
+
+```text
+X.shape = (C, N, T)
+```
+
+where:
+
+- `C` is the number of conditions
+- `N` is the number of sensors/channels
+- `T` is the number of time points
+
+For MNE workflows, the high-level helpers can accept condition-averaged
+`Evoked` objects directly, so user scripts do not need to manually construct
+this tensor.
+
+## Quick Start
 
 ```python
 import numpy as np
-from redisca import export_result, fit_redisca
-from redisca.viz import plot_component_timeseries
 
-X = np.random.randn(4, 16, 200)            # (C, N, T)
-target_rdm = np.array([
-    [0, 0, 1, 1],
-    [0, 0, 1, 1],
-    [1, 1, 0, 0],
-    [1, 1, 0, 0],
-], dtype=float)
+from redisca import binary_rdm, export_result, fit_redisca
+from redisca.viz import plot_component_timeseries, plot_top_component_rdms
 
-result = fit_redisca(X, target_rdm, permutation_test=True, n_perm=500, random_state=0)
-fig, axes = plot_component_timeseries(result, idxs=[0])
-paths = export_result(result, "redisca_output")
+condition_order = ["face", "car", "scrambled_face", "scrambled_car"]
+target_rdm = binary_rdm(
+    condition_order,
+    positive_conditions={"face", "car"},
+)
+
+X = np.random.randn(4, 16, 200)
+
+result = fit_redisca(
+    X,
+    target_rdm,
+    permutation_test=True,
+    n_perm=500,
+    random_state=0,
+)
+
+plot_top_component_rdms(result, k=3)
+plot_component_timeseries(result, idxs=[0], condition_names=condition_order)
+export_result(result, "redisca_output")
 
 print(result.pearson_scores)
 print(result.p_values)
-print(paths)
 ```
 
-Sliding-window scans are available through `sliding_window_fit_redisca`:
+## Sliding Windows
+
+Use sample counts when you already work in samples:
 
 ```python
 from redisca import sliding_window_fit_redisca
@@ -48,130 +92,126 @@ scan = sliding_window_fit_redisca(
     window_size=50,
     step_size=10,
 )
+```
+
+Use milliseconds when working with EEG/MEG sampling frequency:
+
+```python
+from redisca import sliding_window_fit_redisca_ms
+
+scan = sliding_window_fit_redisca_ms(
+    X,
+    target_rdm,
+    sfreq=1024.0,
+    window_ms=150.0,
+    step_ms=25.0,
+    times=times,
+    permutation_test=True,
+    n_perm=1000,
+)
 
 pearson_over_time = scan.component_metric_matrix("pearson_scores")
+p_values_over_time = scan.component_metric_matrix("p_values")
 ```
 
-## Visualization example
+## MNE-Style API
 
-A ready-made script that generates synthetic data, fits the model, and
-displays diagnostic plots:
-
-```bash
-python3 examples/visualize_synthetic.py
-```
-
-The script produces:
-
-1. **Top component RDMs** + the target RDM (`plot_top_component_rdms`)
-2. **Pearson correlation scores** per component (`plot_component_scores`)
-3. **Eigenvalue (λ) spectrum** (`plot_component_lambdas`)
-4. **Component time series** by condition (`plot_component_timeseries`)
-5. **Spatial pattern weights** per channel for the top 3 components (`plot_patterns`)
-6. **MNE topomap** of synthetic spatial patterns when `mne` is installed (`plot_pattern_topomaps`)
-7. **Export bundle** with arrays, summary CSV, and metadata JSON (`export_result`)
-
-All visualization functions return `(fig, ax)` / `(fig, axes)` and can be
-used standalone:
+For common MNE pipelines, ReDisCA can run directly on condition-averaged
+`Evoked` objects:
 
 ```python
-from redisca import export_result
-from redisca.viz import (
-    plot_top_component_rdms,
-    plot_component_scores,
-    plot_component_timeseries,
+from redisca import (
+    average_conditions,
+    binary_rdm,
+    fit_redisca_evokeds,
+    sliding_window_fit_redisca_evokeds,
 )
 
-fig, axes = plot_top_component_rdms(result, k=3)
-fig, ax   = plot_component_scores(result, show_p=True)
-fig, axes = plot_component_timeseries(result, idxs=[0, 1])
-fig, axes = plot_component_timeseries(
-    result,
-    idxs=[0, 1],
-    condition_layout="separate",
-)
-paths = export_result(result, "redisca_output")
-```
+event_code_groups = {
+    "face": range(1, 41),
+    "car": range(41, 81),
+    "scrambled_face": range(101, 141),
+    "scrambled_car": range(141, 181),
+}
+condition_order = ["face", "car", "scrambled_face", "scrambled_car"]
 
-## Visualization layers
-
-`redisca.viz` contains lightweight Matplotlib plots that do not require
-sensor geometry:
-
-- RDM heatmaps
-- Pearson score bars
-- eigenvalue spectra
-- component time courses
-- fallback bar-plots for patterns
-
-If you want EEG/MEG-aware sensor topographies and standard MNE condition
-plots, use the optional `redisca.viz_mne` module:
-
-```python
-from redisca.viz_mne import (
-    plot_pattern_topomaps,
-    plot_compare_conditions,
-    plot_condition_joint,
+evokeds = average_conditions(
+    epochs,
+    event_code_groups,
+    condition_order=condition_order,
 )
 
-# Requires MNE and an aligned mne.Info object:
-fig, axes = plot_pattern_topomaps(result, info)
+target_rdm = binary_rdm(condition_order, {"face", "car"})
+
+analysis = fit_redisca_evokeds(
+    evokeds,
+    target_rdm,
+    condition_order=condition_order,
+    tmin=0.150,
+    tmax=0.250,
+    permutation_test=True,
+    n_perm=1000,
+)
+
+scan = sliding_window_fit_redisca_evokeds(
+    evokeds,
+    target_rdm,
+    condition_order=condition_order,
+    window_ms=150.0,
+    step_ms=25.0,
+    permutation_test=True,
+    n_perm=1000,
+)
+
+print(analysis.pearson_scores)
+print(scan.component_metric_matrix("p_values"))
 ```
 
-`plot_patterns()` remains useful as a fallback when you do not have channel
-locations, while `plot_pattern_topomaps()` is the preferred final
-visualization for EEG/MEG figures.
+Dataset-specific choices still belong in the user script: event codes,
+preprocessing, condition names, target RDMs, and analysis windows.
 
-## Article-style reproduction
+## Visualization
 
-The repository now includes two reproducible workflows inspired by the
-ReDisCA paper.
+Lightweight Matplotlib plots live in `redisca.viz`:
 
-### 1. Open-data EEG example (ERP CORE N170)
+- `plot_rdm`
+- `plot_top_component_rdms`
+- `plot_component_scores`
+- `plot_component_lambdas`
+- `plot_component_timeseries`
+- `plot_patterns`
 
-This script downloads ERP CORE `sub-001` from the public OSF dataset, builds
-four averaged conditions (`face`, `car`, `scrambled_face`,
-`scrambled_car`), runs a 150 ms meaningful-vs-meaningless sliding-window
-scan, and then runs a fixed N170-centered face-specific analysis.
+MNE-aware plots live in `redisca.viz_mne`:
 
-Requires the optional MNE dependency:
+- `plot_pattern_topomaps`
+- `plot_compare_conditions`
+- `plot_condition_joint`
 
-```bash
-pip install -e ".[mne]"
-python3 examples/reproduce_erpcore_n170.py --n-perm 50
+Batch report helpers live in `redisca.report`:
+
+- `save_evoked_overview`
+- `save_result_diagnostics`
+- `save_sliding_window_report`
+- `save_window_metrics_csv`
+- `summarize_result`
+
+## Examples
+
+See [examples/README.md](examples/README.md) for a short guide.
+
+Main scripts:
+
+- `examples/synthetic_article.py` runs article-style synthetic simulations.
+- `examples/analyze_mne_sample_evokeds.py` runs ReDisCA on ready MNE sample evokeds.
+- `examples/n170/prepare_erpcore_n170.py` downloads/prepares ERP CORE N170 with ICA diagnostics.
+- `examples/n170/reproduce_erpcore_n170.py` runs ERP CORE N170 analysis from a prepared bundle.
+- `examples/analyze_ready_data.py` runs ReDisCA on a prepared `.npz` bundle.
+
+Prepared ERP CORE N170 data are expected under:
+
+```text
+examples/n170/prepared/
 ```
 
-Outputs are saved under `examples/repro_outputs/erpcore_n170/` and include:
-
-- sliding-window Pearson and p-value heatmaps
-- top component RDMs and time courses for the best meaningfulness window
-- sensor topomaps for the recovered patterns
-- an export bundle plus `summary.json`
-
-This is an article-style public-data workflow, not a byte-for-byte
-reconstruction of every published figure.
-
-### 2. Paper-like simulation benchmark
-
-This benchmark script runs Monte Carlo simulations in the spirit of the paper:
-a single-source detection scenario and a multi-source recovery scenario with
-source-specific RDMs.
-
-```bash
-python3 examples/paper_like_benchmark.py --n-iter 30
-```
-
-Outputs are saved under `examples/repro_outputs/paper_like_benchmark/` and
-include:
-
-- `single_source_trials.csv`
-- `multi_source_trials.csv`
-- `benchmark_overview.png`
-- `summary.json`
-
-## Running tests
-
-```bash
-pip install -e ".[dev]"
-pytest
-```
+Generated figures and reports are written to example-specific output folders,
+such as `examples/n170/outputs/` and `examples/repro_outputs/`.

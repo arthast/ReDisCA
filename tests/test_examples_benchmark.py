@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import importlib.util
 from pathlib import Path
 
@@ -20,10 +19,10 @@ def load_example_module(module_name: str, relative_path: str):
     return module
 
 
-def test_paper_like_benchmark_single_source_metrics_are_bounded():
+def test_synthetic_article_single_source_metrics_are_bounded():
     module = load_example_module(
-        "paper_like_benchmark",
-        "examples/paper_like_benchmark.py",
+        "synthetic_article",
+        "examples/synthetic_article.py",
     )
     rng = np.random.default_rng(0)
 
@@ -43,12 +42,13 @@ def test_paper_like_benchmark_single_source_metrics_are_bounded():
     assert 0.0 <= metrics["pattern_cosine"] <= 1.0
 
 
-def test_paper_like_benchmark_run_produces_expected_row_counts():
+def test_synthetic_article_run_produces_expected_row_counts():
     module = load_example_module(
-        "paper_like_benchmark_run",
-        "examples/paper_like_benchmark.py",
+        "synthetic_article_run",
+        "examples/synthetic_article.py",
     )
-    args = argparse.Namespace(
+
+    single_df, multi_df = module.run_synthetic_article(
         n_iter=2,
         snr_levels=[0.4, 0.8],
         n_channels=12,
@@ -56,10 +56,7 @@ def test_paper_like_benchmark_run_produces_expected_row_counts():
         smooth_sigma=5.0,
         rdm_noise_scale=0.2,
         random_state=0,
-        output_root=Path("unused"),
     )
-
-    single_df, multi_df = module.run_benchmark(args)
 
     assert len(single_df) == 4
     assert len(multi_df) == 16
@@ -69,8 +66,8 @@ def test_paper_like_benchmark_run_produces_expected_row_counts():
 
 def test_noisy_target_rdm_stays_valid():
     module = load_example_module(
-        "paper_like_benchmark_rdm",
-        "examples/paper_like_benchmark.py",
+        "synthetic_article_rdm",
+        "examples/synthetic_article.py",
     )
     rng = np.random.default_rng(123)
     source_timeseries = module.sample_condition_timeseries(

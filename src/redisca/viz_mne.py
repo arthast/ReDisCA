@@ -28,7 +28,13 @@ def _require_mne():
         ) from exc
 
 
-def _maybe_save_figure(fig, save_path: str | Path | None, dpi: int) -> None:
+def _maybe_save_figure(
+    fig,
+    save_path: str | Path | None,
+    dpi: int,
+    *,
+    pad_inches: float = 0.2,
+) -> None:
     """Save a Matplotlib figure or a list of figures if requested."""
     if save_path is None:
         return
@@ -37,15 +43,30 @@ def _maybe_save_figure(fig, save_path: str | Path | None, dpi: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     if isinstance(fig, list):
+        if len(fig) == 1:
+            fig[0].savefig(
+                path,
+                dpi=dpi,
+                bbox_inches="tight",
+                pad_inches=pad_inches,
+            )
+            print(f"Saved {path}")
+            return
+
         stem = path.stem
         suffix = path.suffix or ".png"
         for i, item in enumerate(fig):
             item_path = path.with_name(f"{stem}_{i}{suffix}")
-            item.savefig(item_path, dpi=dpi, bbox_inches="tight")
+            item.savefig(
+                item_path,
+                dpi=dpi,
+                bbox_inches="tight",
+                pad_inches=pad_inches,
+            )
             print(f"Saved {item_path}")
         return
 
-    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    fig.savefig(path, dpi=dpi, bbox_inches="tight", pad_inches=pad_inches)
     print(f"Saved {path}")
 
 
