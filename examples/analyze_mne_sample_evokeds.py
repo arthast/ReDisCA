@@ -10,9 +10,6 @@ library use case: prepared condition responses in, ReDisCA components and
 patterns out.
 """
 
-from __future__ import annotations
-
-import json
 import sys
 from pathlib import Path
 
@@ -33,7 +30,6 @@ from redisca.report import (
     save_result_diagnostics,
     save_sliding_window_report,
     save_target_rdm_figure,
-    summarize_result,
 )
 
 
@@ -153,19 +149,6 @@ save_result_diagnostics(
     target_title="Target RDM: auditory vs visual",
 )
 
-summary: dict[str, object] = {
-    "dataset": "MNE sample / sample_audvis-ave.fif",
-    "conditions": CONDITION_ORDER,
-    "sensor_type": "EEG",
-    "target": "auditory vs visual",
-    "fixed_window": {
-        "window_start_ms": float(1000.0 * analysis.times[0]),
-        "window_stop_ms": float(1000.0 * analysis.times[-1]),
-        "summary": summarize_result(analysis.result),
-        "artifacts_dir": "fixed_window",
-    },
-}
-
 
 # =============================================================================
 # Optional sliding-window ReDisCA
@@ -188,7 +171,7 @@ if RUN_SLIDING_WINDOW:
 
     scan = scan_analysis.scan
     best_idx = scan_analysis.best_window_index(component=0)
-    scan_artifacts = save_sliding_window_report(
+    save_sliding_window_report(
         scan,
         OUTPUT_ROOT,
         prefix="auditory_vs_visual",
@@ -210,24 +193,4 @@ if RUN_SLIDING_WINDOW:
         target_title="Target RDM: auditory vs visual",
     )
 
-    summary["sliding_window"] = {
-        "best_window_index": int(best_idx),
-        "best_window_start_ms": float(1000.0 * best_times[0]),
-        "best_window_stop_ms": float(1000.0 * best_times[-1]),
-        "best_window_summary": summarize_result(best_result),
-        "artifacts": {
-            **scan_artifacts,
-            "best_window_dir": "best_sliding_window",
-        },
-    }
-
-
-# =============================================================================
-# Summary
-# =============================================================================
-
-with (OUTPUT_ROOT / "summary.json").open("w", encoding="utf-8") as handle:
-    json.dump(summary, handle, indent=2)
-
-print(json.dumps(summary, indent=2))
 print(f"\nSaved outputs to {OUTPUT_ROOT}")

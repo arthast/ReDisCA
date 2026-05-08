@@ -693,7 +693,7 @@ class TestValidation:
 # =============================================================================
 
 class TestMathematicalProperties:
-    """Tests verifying mathematical properties from the paper."""
+    """Tests verifying mathematical properties of the implementation."""
 
     def test_lambda_equals_w_R_bar_d_w(self, simple_data):
         """Lambda should equal w.T @ R_bar_d @ w for each component."""
@@ -928,7 +928,7 @@ class TestPermutationTest:
             raise ValueError("forced invalid permutation")
 
         monkeypatch.setattr(
-            "redisca.stats._max_lambda_for_permuted_rdm",
+            "redisca.stats._max_lambda_for_permuted_pairs",
             fake_max_lambda,
         )
 
@@ -963,7 +963,7 @@ class TestPermutationTest:
             raise ValueError("forced invalid permutation")
 
         monkeypatch.setattr(
-            "redisca.stats._max_lambda_for_permuted_rdm",
+            "redisca.stats._max_lambda_for_permuted_pairs",
             fake_max_lambda,
         )
 
@@ -1039,7 +1039,6 @@ class TestPermutationTest:
                 random_state=0,
                 **kwargs,
             )
-
 
 # =============================================================================
 # Test: Export

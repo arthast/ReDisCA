@@ -12,9 +12,11 @@ from typing import Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from .types import ReDisCAResult
+from .viz import add_panel_colorbar
 
 
 def _require_mne():
@@ -86,6 +88,49 @@ def _normalize_pattern(
     raise ValueError(
         f"normalize must be 'none', 'maxabs' or 'zscore', got '{normalize}'"
     )
+
+
+def plot_pattern_topomap_panel(
+    ax: Axes,
+    result: ReDisCAResult,
+    info,
+    *,
+    component: int,
+    title: str,
+    ch_type: str | None = None,
+    normalize: str = "maxabs",
+    cmap: str = "RdBu_r",
+    sensors: bool = True,
+    contours: int = 6,
+    vlim: tuple[float | None, float | None] | None = (-1.0, 1.0),
+    colorbar: bool = True,
+    colorbar_label: str = "Weight",
+):
+    """Plot one ReDisCA spatial pattern topomap into an existing axes."""
+    mne = _require_mne()
+    pattern = _normalize_pattern(result.A[:, component], normalize)
+    image, _ = mne.viz.plot_topomap(
+        pattern,
+        info,
+        ch_type=ch_type,
+        axes=ax,
+        show=False,
+        cmap=cmap,
+        sensors=sensors,
+        contours=contours,
+        vlim=vlim,
+    )
+    ax.set_title(title, fontsize=9, pad=6)
+    if colorbar:
+        add_panel_colorbar(
+            ax,
+            image,
+            label=colorbar_label,
+            size="3%",
+            pad=0.02,
+            ticks=[-1.0, 0.0, 1.0] if vlim == (-1.0, 1.0) else None,
+        )
+    return image
 
 
 def plot_pattern_topomaps(
@@ -266,6 +311,7 @@ def plot_condition_joint(
 
 
 __all__ = [
+    "plot_pattern_topomap_panel",
     "plot_pattern_topomaps",
     "plot_compare_conditions",
     "plot_condition_joint",

@@ -114,7 +114,7 @@ pearson_over_time = scan.component_metric_matrix("pearson_scores")
 p_values_over_time = scan.component_metric_matrix("p_values")
 ```
 
-## MNE-Style API
+## Example API
 
 For common MNE pipelines, ReDisCA can run directly on condition-averaged
 `Evoked` objects:
@@ -124,6 +124,7 @@ from redisca import (
     average_conditions,
     binary_rdm,
     fit_redisca_evokeds,
+    load_evoked_bundle,
     sliding_window_fit_redisca_evokeds,
 )
 
@@ -141,6 +142,11 @@ evokeds = average_conditions(
     condition_order=condition_order,
 )
 
+# If preprocessing has already produced a compact ReDisCA bundle, load it in
+# one line instead:
+evokeds = load_evoked_bundle("ready.npz", "info.fif")
+
+condition_order = list(evokeds)
 target_rdm = binary_rdm(condition_order, {"face", "car"})
 
 analysis = fit_redisca_evokeds(
@@ -167,9 +173,6 @@ print(analysis.pearson_scores)
 print(scan.component_metric_matrix("p_values"))
 ```
 
-Dataset-specific choices still belong in the user script: event codes,
-preprocessing, condition names, target RDMs, and analysis windows.
-
 ## Visualization
 
 Lightweight Matplotlib plots live in `redisca.viz`:
@@ -178,6 +181,7 @@ Lightweight Matplotlib plots live in `redisca.viz`:
 - `plot_top_component_rdms`
 - `plot_component_scores`
 - `plot_component_lambdas`
+- `plot_sliding_window_metric`
 - `plot_component_timeseries`
 - `plot_patterns`
 
@@ -190,10 +194,26 @@ MNE-aware plots live in `redisca.viz_mne`:
 Batch report helpers live in `redisca.report`:
 
 - `save_evoked_overview`
+- `save_scan_overview_figure`
+- `save_window_sequence_figure`
+- `save_component_summary_figure`
 - `save_result_diagnostics`
 - `save_sliding_window_report`
 - `save_window_metrics_csv`
-- `summarize_result`
+
+Example:
+
+```python
+from redisca.report import save_scan_overview_figure
+
+save_scan_overview_figure(
+    scan,
+    "figures/scan_overview.png",
+    info=info,
+    condition_names=condition_order,
+    title="Sliding-window summary",
+)
+```
 
 ## Examples
 
@@ -201,11 +221,10 @@ See [examples/README.md](examples/README.md) for a short guide.
 
 Main scripts:
 
-- `examples/synthetic_article.py` runs article-style synthetic simulations.
+- `examples/synthetic_benchmark.py` runs synthetic benchmark simulations.
 - `examples/analyze_mne_sample_evokeds.py` runs ReDisCA on ready MNE sample evokeds.
 - `examples/n170/prepare_erpcore_n170.py` downloads/prepares ERP CORE N170 with ICA diagnostics.
 - `examples/n170/reproduce_erpcore_n170.py` runs ERP CORE N170 analysis from a prepared bundle.
-- `examples/analyze_ready_data.py` runs ReDisCA on a prepared `.npz` bundle.
 
 Prepared ERP CORE N170 data are expected under:
 

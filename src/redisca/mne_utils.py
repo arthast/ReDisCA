@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -148,6 +149,70 @@ def evokeds_to_tensor(
 
     X = np.stack(data, axis=0)
     return X, times, first.info.copy()
+
+
+def load_evoked_bundle(
+    data_path: str | Path,
+    info_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Load a prepared ReDisCA ``.npz`` bundle as MNE ``Evoked`` objects.
+
+    The bundle must contain ``X`` with shape ``(conditions, channels,
+    timepoints)``, ``times`` in seconds, ``condition_order``, and ``sfreq``.
+    If ``info_path`` is provided, sensor metadata is read from that MNE ``.fif``
+    file so geometry-aware plots such as topomaps work directly.
+    """
+    mne = _require_mne()
+    data_path = Path(data_path)
+    with np.load(data_path, allow_pickle=False) as data:
+        X = np.asarray(data["X"], dtype=np.float64)
+        times = np.asarray(data["times"], dtype=np.float64)
+        condition_order = [str(name) for name in data["condition_order"].tolist()]
+        sfreq = float(data["sfreq"])
+        ch_names = (
+            [str(name) for name in data["ch_names"].tolist()]
+            if "ch_names" in data.files
+            else None
+        )
+
+    if X.ndim != 3:
+        raise ValueError(
+            f"X must have shape (conditions, channels, timepoints), got {X.shape}"
+        )
+    if times.shape != (X.shape[2],):
+        raise ValueError(f"times must have shape ({X.shape[2]},), got {times.shape}")
+    if len(condition_order) != X.shape[0]:
+        raise ValueError(
+            "condition_order length must match X.shape[0]: "
+            f"{len(condition_order)} != {X.shape[0]}"
+        )
+
+    if info_path is None:
+        if ch_names is None:
+            ch_names = [f"CH{idx:03d}" for idx in range(X.shape[1])]
+        info = mne.create_info(ch_names=ch_names, sfreq=sfreq, ch_types="eeg")
+    else:
+        info = mne.io.read_info(info_path, verbose="ERROR")
+        if len(info.ch_names) != X.shape[1]:
+            raise ValueError(
+                "Info channel count must match X.shape[1]: "
+                f"{len(info.ch_names)} != {X.shape[1]}"
+            )
+        if not np.isclose(float(info["sfreq"]), sfreq):
+            raise ValueError(
+                f"Info sfreq ({info['sfreq']}) does not match bundle sfreq ({sfreq})."
+            )
+
+    return {
+        condition: mne.EvokedArray(
+            X[idx],
+            info.copy(),
+            tmin=float(times[0]),
+            comment=condition,
+            verbose="ERROR",
+        )
+        for idx, condition in enumerate(condition_order)
+    }
 
 
 def fit_redisca_evokeds(
@@ -299,6 +364,7 @@ __all__ = [
     "EvokedSlidingWindowReDisCAResult",
     "evokeds_to_tensor",
     "fit_redisca_evokeds",
+    "load_evoked_bundle",
     "make_montage_from_electrodes",
     "sliding_window_fit_redisca_evokeds",
 ]

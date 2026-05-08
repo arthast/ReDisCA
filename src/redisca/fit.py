@@ -61,7 +61,9 @@ def fit_redisca(
         tol: Threshold for treating eigenvalues of R_bar as numerically positive.
              Used to determine the effective numerical rank.
         permutation_test: If True, run a permutation test to assess the
-            significance of each component.
+            significance of each component. The null model shuffles
+            upper-triangular target-RDM entries against fixed condition-pair
+            data matrices.
         n_perm: Number of permutations (only used when permutation_test=True).
         alpha: Significance level (only used when permutation_test=True).
         random_state: Random seed for the permutation test.

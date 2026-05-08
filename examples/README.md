@@ -1,7 +1,7 @@
 # ReDisCA Examples
 
-This folder contains runnable workflows that show the library on article-style
-synthetic data, ready MNE evoked data, and ERP CORE N170 data.
+This folder contains runnable workflows that show the library on synthetic
+benchmark data, ready MNE evoked data, and ERP CORE N170 data.
 
 Run these commands from the repository root with the project environment:
 
@@ -12,48 +12,31 @@ Run these commands from the repository root with the project environment:
 If your virtual environment is already activated, `python` is fine. Plain
 system `python3` may fail with `ModuleNotFoundError: No module named 'mne'`.
 
-## Article-Style Synthetic Data
+## Synthetic Benchmark
 
 ```bash
-.venv/bin/python examples/synthetic_article.py
+.venv/bin/python examples/synthetic_benchmark.py
 ```
 
-This is the only synthetic example. It runs compact simulations inspired by the
-article:
+This is the only synthetic example. It runs a multi-source simulation:
 
-- one representational source mixed into sensors;
-- several active sources, each with its own RDM.
-
-There are no command-line arguments. Edit the user settings at the top of
-`examples/synthetic_article.py`:
-
-```python
-OUTPUT_ROOT = ROOT / "examples" / "repro_outputs" / "synthetic_article"
-N_ITER = 30
-SNR_LEVELS = [0.35, 0.70, 1.05]
-N_CHANNELS = 32
-N_TIMEPOINTS = 200
-SMOOTH_SIGMA = 10.0
-RDM_NOISE_SCALE = 0.25
-RANDOM_STATE = 0
-```
+- 4 planted sources;
+- 6 conditions;
+- source time series generated as `S = M @ Z`;
+- noisy target RDMs and 1/f-like sensor noise.
 
 Outputs go to:
 
 ```text
-examples/repro_outputs/synthetic_article/
+examples/repro_outputs/synthetic_benchmark/
 ```
 
 The script saves:
 
-- `benchmark_overview.png`: metric distributions over SNR levels
-- `single_source_example.png`: true RDM, noisy target RDM, recovered RDM,
-  and true/recovered sensor pattern for one single-source run
-- `multi_source_example.png`: true, target, and recovered RDMs for each
+- `source_recovery_metrics.png`: recovery metrics over SNR levels
+- `source_recovery_example.png`: true, target, and recovered RDMs for each
   planted source, plus a true/recovered sensor-pattern comparison
-- `single_source_trials.csv` and `multi_source_trials.csv`: raw Monte Carlo
-  metrics
-- `summary.json`: compact config and summary metrics
+- `source_recovery_trials.csv`: raw Monte Carlo metrics
 
 ## Ready MNE Evokeds
 
@@ -99,21 +82,13 @@ The preparation script does the dataset-specific work once:
 - sets channel types, electrode montage, and average reference
 - fits ICA on EEG channels
 - automatically detects EOG-related ICA components
+- fills ICA exclusions up to three components using the strongest EOG scores
 - saves ICA diagnostic figures for manual inspection
 - applies selected ICA exclusions
 - epochs, baseline-corrects, and averages the four conditions
 - writes the compact ReDisCA bundle under `examples/n170/prepared/`
 
-The download step requires internet access and uses the ERP CORE N170 files
-from OSF. MNE is still used for EEG processing and visualization, but not for
-fetching this N170 dataset. If the files were downloaded manually, place them
-here before running the preparation script:
-
-```text
-examples/n170/data/erpcore_n170/sub-001/eeg/
-```
-
-Downloaded data and generated artifacts are ignored by git:
+Downloaded data and generated artifacts:
 
 ```text
 examples/n170/data/
@@ -128,39 +103,16 @@ ICA diagnostics are saved here:
 examples/n170/work/ica_diagnostics/
 ```
 
-To manually change rejected ICA components, inspect the figures, edit
-`MANUAL_ICA_EXCLUDE` in `examples/n170/prepare_erpcore_n170.py`, and rerun the
-preparation script.
-
-`examples/n170/reproduce_erpcore_n170.py` is a plain Python script. Edit the user
-settings at the top of the file:
-
-```python
-READY_NPZ = N170_ROOT / "prepared" / "erpcore_n170_sub001_ready.npz"
-READY_INFO_FIF = N170_ROOT / "prepared" / "erpcore_n170_sub001_info.fif"
-OUTPUT_ROOT = N170_ROOT / "outputs"
-
-PERMUTATION_TEST = True
-N_PERM = 1000
-ALPHA = 0.05
-
-MEANINGFUL_WINDOW_MS = 150.0
-MEANINGFUL_STEP_MS = 25.0
-CATEGORY_WINDOW_START_S = 0.150
-CATEGORY_WINDOW_STOP_S = 0.250
-```
-
 ```bash
 .venv/bin/python examples/n170/reproduce_erpcore_n170.py
 ```
 
 The script starts from a prepared bundle and does not load raw EEG, filter,
-epoch, or average trials. The ready files are:
+epoch, or average trials. The analysis script reads:
 
 ```text
 examples/n170/prepared/erpcore_n170_sub001_ready.npz
 examples/n170/prepared/erpcore_n170_sub001_info.fif
-examples/n170/prepared/erpcore_n170_sub001_ready_metadata.json
 ```
 
 The `.npz` file contains:
@@ -176,46 +128,20 @@ Then it runs:
 - a meaningful-vs-meaningless 150 ms sliding-window scan
 - a fixed 150-250 ms face-specific N170 analysis
 - a fixed 150-250 ms car-specific N170 analysis
-- an article-comparison summary that separates high RDM correlation from
-  permutation-test significance
+- interactive Matplotlib/MNE figures for RDMs, topographies, component time
+  series, and sliding-window p-values
 
-Outputs go to:
+Saved figures are grouped under:
 
 ```text
-examples/n170/outputs/
+examples/n170/outputs/figures/
 ```
 
-## Already Prepared Data
-
-`examples/analyze_ready_data.py` is a plain Python script for the case where
-preprocessing is already done. Edit the user settings at the top of the file:
-
-```python
-INPUT_NPZ = ROOT / "examples" / "data" / "prepared_data.npz"
-OUTPUT_ROOT = ROOT / "examples" / "repro_outputs" / "ready_data"
-
-TMIN = 0.150
-TMAX = 0.250
-
-PERMUTATION_TEST = True
-N_PERM = 1000
-
-RUN_SLIDING_WINDOW = True
-WINDOW_MS = 150.0
-STEP_MS = 25.0
-```
-
-The input `.npz` file should contain:
-
-- `X`: condition-averaged data with shape `(C, N, T)`
-- `target_rdm`: target RDM with shape `(C, C)`
-- `times`: time axis in seconds with shape `(T,)`
-- `condition_order`: optional condition names
-- `sfreq`: optional sampling frequency, required when `RUN_SLIDING_WINDOW = True`
-
-```bash
-.venv/bin/python examples/analyze_ready_data.py
-```
+- `overview/`: condition-averaged evoked overview
+- `meaningful_vs_meaningless/`: target RDM, p-values, topomap, RDMs, and
+  combined sliding-window figures
+- `face_specific/`: fixed-window face component figures
+- `car_specific/`: fixed-window car component figures
 
 ## What Belongs In User Code
 

@@ -7,7 +7,8 @@ matches a given theoretical RDM.
 Core fitting, simple RDM construction, sliding-window helpers, and lightweight
 MNE interoperability helpers are available from the package root. Plotting and
 batch-report helpers live in the ``redisca.viz``, ``redisca.viz_mne``, and
-``redisca.report`` submodules.
+``redisca.report`` submodules. Compact scalar summaries live in
+``redisca.summary``.
 """
 
 __version__ = "0.1.0"
@@ -20,6 +21,7 @@ from .mne_utils import (
     condition_epoch_counts,
     evokeds_to_tensor,
     fit_redisca_evokeds,
+    load_evoked_bundle,
     make_montage_from_electrodes,
     sliding_window_fit_redisca_evokeds,
 )
@@ -51,6 +53,7 @@ __all__ = [
     "EvokedSlidingWindowReDisCAResult",
     "evokeds_to_tensor",
     "fit_redisca_evokeds",
+    "load_evoked_bundle",
     "make_montage_from_electrodes",
     "sliding_window_fit_redisca_evokeds",
     "sliding_window_fit_redisca",

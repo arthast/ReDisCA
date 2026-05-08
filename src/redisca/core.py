@@ -266,9 +266,9 @@ def solve_gep(
 ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
     """Solve generalized eigenvalue problem using principal subspace approach.
 
-    As per the paper: if the GEP is not full rank, the procedure is performed
-    in the lower dimensional principal space and topographies are transformed
-    back to the original sensor space.
+    If the GEP is not full rank, the procedure is performed in the lower
+    dimensional principal space and topographies are transformed back to the
+    original sensor space.
 
     Solves: R_bar_d @ w = lambda * R_bar @ w
     Subject to: w.T @ R_bar @ w = 1

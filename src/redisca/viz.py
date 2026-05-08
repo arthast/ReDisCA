@@ -17,8 +17,9 @@ from numpy.typing import NDArray
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure, SubFigure
 from matplotlib.axes import Axes
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from .types import ReDisCAResult
+from .types import ReDisCAResult, SlidingWindowReDisCAResult
 
 
 def _maybe_save(fig: Figure | SubFigure, save_path: str | Path | None, dpi: int) -> None:
@@ -34,6 +35,126 @@ def _minmax(M: NDArray[np.floating]) -> NDArray[np.floating]:
     """Scale *M* into [0, 1] by min–max normalization."""
     mn, mx = M.min(), M.max()
     return (M - mn) / (mx - mn + 1e-12)
+
+
+def add_panel_colorbar(
+    ax: Axes,
+    image,
+    *,
+    label: str,
+    size: str = "4%",
+    pad: float = 0.06,
+    ticks: Sequence[float] | None = None,
+) -> None:
+    """Attach a compact colorbar to one panel in a composed figure."""
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size=size, pad=pad)
+    colorbar = ax.figure.colorbar(image, cax=cax, ticks=ticks)
+    colorbar.ax.tick_params(labelsize=7, length=2)
+    colorbar.set_label(label, fontsize=8, labelpad=2)
+
+
+def _contrast_matrix(matrix: NDArray[np.floating]) -> NDArray[np.floating]:
+    """Min-max normalize a matrix for annotation contrast decisions."""
+    matrix = np.asarray(matrix, dtype=np.float64)
+    return (matrix - np.min(matrix)) / (np.ptp(matrix) + 1e-12)
+
+
+def plot_rdm_panel(
+    ax: Axes,
+    matrix: NDArray[np.floating],
+    *,
+    title: str,
+    condition_names: Sequence[str],
+    cmap: str = "viridis",
+    show_values: bool = True,
+    colorbar: bool = True,
+    colorbar_label: str = "Dissimilarity",
+):
+    """Plot one compact RDM panel for multi-panel figures."""
+    matrix = np.asarray(matrix, dtype=np.float64)
+    matrix_display = _contrast_matrix(matrix)
+    vmin = float(np.min(matrix))
+    vmax = float(np.max(matrix))
+    if np.isclose(vmin, vmax):
+        vmax = vmin + 1.0
+    image = ax.imshow(matrix, origin="upper", cmap=cmap, vmin=vmin, vmax=vmax)
+
+    C = matrix_display.shape[0]
+    ax.set_xticks(range(C))
+    ax.set_yticks(range(C))
+    ax.set_xticklabels(condition_names, rotation=30, ha="right", fontsize=8)
+    ax.set_yticklabels(condition_names, fontsize=8)
+    ax.set_title(title)
+    ax.tick_params(length=0)
+
+    if show_values:
+        for row in range(C):
+            for col in range(C):
+                value = float(matrix[row, col])
+                color = "white" if matrix_display[row, col] < 0.5 else "black"
+                ax.text(
+                    col,
+                    row,
+                    f"{value:.2f}",
+                    ha="center",
+                    va="center",
+                    color=color,
+                    fontsize=7,
+                )
+
+    if colorbar:
+        add_panel_colorbar(ax, image, label=colorbar_label, size="4%", pad=0.05)
+
+    return image
+
+
+def plot_component_timeseries_panel(
+    ax: Axes,
+    timeseries: NDArray[np.floating],
+    times: NDArray[np.floating],
+    *,
+    component: int,
+    condition_names: Sequence[str],
+    title: str,
+    time_scale: float,
+    time_unit: str,
+    highlight_interval: tuple[float, float] | None = None,
+    show_legend: bool = False,
+) -> None:
+    """Plot one component's condition time series into an existing axes."""
+    times = np.asarray(times, dtype=np.float64)
+    if times.shape != (timeseries.shape[-1],):
+        raise ValueError(
+            f"times must have shape ({timeseries.shape[-1]},), got {times.shape}"
+        )
+
+    x = time_scale * times
+    for condition_idx, condition_name in enumerate(condition_names):
+        ax.plot(
+            x,
+            timeseries[condition_idx, component],
+            linewidth=1.5,
+            label=condition_name,
+        )
+
+    if x[0] <= 0.0 <= x[-1]:
+        ax.axvline(0.0, color="black", linewidth=0.8, linestyle=":")
+    if highlight_interval is not None:
+        ax.axvspan(
+            highlight_interval[0],
+            highlight_interval[1],
+            color="grey",
+            alpha=0.14,
+            linewidth=0,
+        )
+    ax.axhline(0.0, color="0.5", linewidth=0.6, linestyle="--")
+    ax.set_title(title)
+    ax.set_xlabel(f"Time ({time_unit})" if time_unit else "Time")
+    ax.set_ylabel("Component amplitude", labelpad=2)
+    ax.grid(True, linewidth=0.3, alpha=0.3)
+    if show_legend:
+        ax.legend(fontsize=8, loc="upper right", frameon=True)
 
 
 def plot_rdm(
@@ -362,6 +483,89 @@ def plot_component_lambdas(
     ax.set_ylabel("λ")
     ax.set_title("Component Eigenvalues (λ)")
     ax.axhline(0, color="grey", linewidth=0.5, linestyle="--")
+
+    _maybe_save(fig, save_path, dpi)
+    return fig, ax
+
+
+def plot_sliding_window_metric(
+    scan: SlidingWindowReDisCAResult,
+    metric: str = "p_values",
+    *,
+    max_components: int | None = None,
+    center_scale: float = 1000.0,
+    time_unit: str = "ms",
+    threshold: float | None = None,
+    cmap: str | None = None,
+    vmin: float | None = None,
+    vmax: float | None = None,
+    title: str | None = None,
+    colorbar_label: str | None = None,
+    ax: Axes | None = None,
+    save_path: str | Path | None = None,
+    dpi: int = 150,
+) -> tuple[Figure | SubFigure, Axes | None]:
+    """Plot a component-by-window heatmap from a sliding-window result."""
+    if hasattr(scan, "scan"):
+        scan = scan.scan
+
+    if max_components is None:
+        max_components = max(result.n_components for result in scan.results)
+
+    matrix = scan.component_metric_matrix(metric, max_components=max_components)
+    centers = center_scale * scan.window_centers
+
+    if cmap is None:
+        cmap = {
+            "p_values": "magma_r",
+            "pearson_scores": "viridis",
+            "lambdas": "plasma",
+        }.get(metric, "viridis")
+    if metric == "p_values":
+        vmin = 0.0 if vmin is None else vmin
+        vmax = 1.0 if vmax is None else vmax
+        threshold = 0.05 if threshold is None else threshold
+    if colorbar_label is None:
+        colorbar_label = {
+            "p_values": "Permutation p-value",
+            "pearson_scores": "Pearson r",
+            "lambdas": "Eigenvalue",
+        }.get(metric, metric)
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(9, 4.5), constrained_layout=True)
+    else:
+        fig = ax.figure
+
+    image = ax.imshow(
+        matrix,
+        aspect="auto",
+        origin="lower",
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        extent=[centers[0], centers[-1], -0.5, max_components - 0.5],
+    )
+    ax.set_xlabel(f"Window center ({time_unit})" if time_unit else "Window center")
+    ax.set_ylabel("Component")
+    ax.set_yticks(range(max_components))
+    ax.set_title(title or metric)
+    fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04, label=colorbar_label)
+
+    if threshold is not None:
+        significant_rows, significant_cols = np.where(
+            np.isfinite(matrix) & (matrix < threshold)
+        )
+        if significant_rows.size:
+            ax.scatter(
+                centers[significant_cols],
+                significant_rows,
+                marker="*",
+                s=70,
+                color="white",
+                edgecolors="black",
+                linewidths=0.3,
+            )
 
     _maybe_save(fig, save_path, dpi)
     return fig, ax

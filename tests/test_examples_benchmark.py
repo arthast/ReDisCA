@@ -19,62 +19,66 @@ def load_example_module(module_name: str, relative_path: str):
     return module
 
 
-def test_synthetic_article_single_source_metrics_are_bounded():
+def test_synthetic_benchmark_source_metrics_are_bounded():
     module = load_example_module(
-        "synthetic_article",
-        "examples/synthetic_article.py",
+        "synthetic_benchmark",
+        "examples/synthetic_benchmark.py",
     )
     rng = np.random.default_rng(0)
 
-    metrics = module.simulate_single_source_trial(
+    dataset = module.make_synthetic_dataset(
         rng,
         snr=0.7,
+        n_conditions=5,
+        n_sources=2,
         n_channels=16,
         n_timepoints=80,
-        smooth_sigma=6.0,
+        n_trials=4,
         rdm_noise_scale=0.2,
     )
+    metrics = module.evaluate_source(dataset, source_index=0)
 
-    assert metrics["n_conditions"] == 5
-    assert metrics["n_components"] >= 1
+    assert metrics["source_index"] == 0
+    assert metrics["component"] >= 0
     assert 0.0 <= metrics["target_rdm_corr"] <= 1.0
     assert 0.0 <= metrics["true_rdm_corr"] <= 1.0
-    assert 0.0 <= metrics["pattern_cosine"] <= 1.0
+    assert 0.0 <= metrics["pattern_corr"] <= 1.0
+    assert 0.0 <= metrics["filter_corr"] <= 1.0
 
 
-def test_synthetic_article_run_produces_expected_row_counts():
+def test_synthetic_benchmark_run_produces_expected_row_counts():
     module = load_example_module(
-        "synthetic_article_run",
-        "examples/synthetic_article.py",
+        "synthetic_benchmark_run",
+        "examples/synthetic_benchmark.py",
     )
 
-    single_df, multi_df = module.run_synthetic_article(
+    df = module.run_synthetic_benchmark(
         n_iter=2,
         snr_levels=[0.4, 0.8],
+        n_conditions=5,
+        n_sources=3,
         n_channels=12,
         n_timepoints=60,
-        smooth_sigma=5.0,
+        n_trials=3,
         rdm_noise_scale=0.2,
         random_state=0,
     )
 
-    assert len(single_df) == 4
-    assert len(multi_df) == 16
-    assert set(single_df["n_conditions"]) == {5}
-    assert set(multi_df["n_conditions"]) == {6}
+    assert len(df) == 12
+    assert set(df["source_index"]) == {0, 1, 2}
+    assert set(df["snr"]) == {0.4, 0.8}
 
 
 def test_noisy_target_rdm_stays_valid():
     module = load_example_module(
-        "synthetic_article_rdm",
-        "examples/synthetic_article.py",
+        "synthetic_benchmark_rdm",
+        "examples/synthetic_benchmark.py",
     )
     rng = np.random.default_rng(123)
-    source_timeseries = module.sample_condition_timeseries(
+    source_timeseries, _ = module.sample_source_timeseries(
         n_conditions=5,
         n_timepoints=50,
         rng=rng,
-        smooth_sigma=4.0,
     )
     true_rdm = module.source_rdm_from_timeseries(source_timeseries)
     target_rdm = module.make_noisy_target_rdm(true_rdm, rng, noise_scale=0.3)

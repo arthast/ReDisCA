@@ -11,6 +11,7 @@ from redisca import (
     condition_epoch_counts as public_condition_epoch_counts,
     evokeds_to_tensor as public_evokeds_to_tensor,
     fit_redisca_evokeds as public_fit_redisca_evokeds,
+    load_evoked_bundle as public_load_evoked_bundle,
     ms_to_samples,
     sliding_window_fit_redisca_evokeds as public_sliding_window_fit_redisca_evokeds,
 )
@@ -19,15 +20,16 @@ from redisca.mne_utils import (
     condition_epoch_counts,
     evokeds_to_tensor,
     fit_redisca_evokeds,
+    load_evoked_bundle,
     sliding_window_fit_redisca_evokeds,
 )
 from redisca.report import (
     save_evoked_overview,
     save_sliding_window_report,
-    summarize_fixed_window_result,
-    summarize_sliding_window_scan,
 )
+from redisca.summary import summarize_fixed_window_result, summarize_sliding_window_scan
 from redisca.types import ReDisCAResult, SlidingWindowReDisCAResult
+from redisca.viz import plot_sliding_window_metric
 from redisca.windowed import sliding_window_fit_redisca_ms
 
 
@@ -117,6 +119,7 @@ class TestMneUtils:
         assert public_condition_epoch_counts is condition_epoch_counts
         assert public_evokeds_to_tensor is evokeds_to_tensor
         assert public_fit_redisca_evokeds is fit_redisca_evokeds
+        assert public_load_evoked_bundle is load_evoked_bundle
         assert public_sliding_window_fit_redisca_evokeds is sliding_window_fit_redisca_evokeds
 
     def test_condition_epoch_counts(self):
@@ -170,6 +173,28 @@ class TestMneUtils:
         assert_allclose(X[1], 2.0)
         assert_allclose(out_times, times)
         assert out_info == info
+
+    def test_load_evoked_bundle_reads_prepared_npz(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("MNE_DONTWRITE_HOME", "true")
+        pytest.importorskip("mne")
+        X = np.arange(2 * 3 * 5, dtype=float).reshape(2, 3, 5)
+        times = np.arange(5, dtype=float) / 100.0
+        bundle_path = tmp_path / "ready.npz"
+        np.savez(
+            bundle_path,
+            X=X,
+            times=times,
+            condition_order=np.array(["face", "car"]),
+            sfreq=100.0,
+            ch_names=np.array(["E1", "E2", "E3"]),
+        )
+
+        evokeds = load_evoked_bundle(bundle_path)
+
+        assert list(evokeds) == ["face", "car"]
+        assert_allclose(evokeds["face"].data, X[0])
+        assert_allclose(evokeds["car"].times, times)
+        assert evokeds["car"].info.ch_names == ["E1", "E2", "E3"]
 
     def test_save_evoked_overview_writes_single_readable_file(self, tmp_path):
         times = np.array([-0.1, 0.0, 0.1])
@@ -272,6 +297,28 @@ class TestWindowHelpers:
         }
         for file_name in artifacts.values():
             assert (tmp_path / file_name).exists()
+
+    def test_plot_sliding_window_metric_returns_heatmap(self):
+        scan = SlidingWindowReDisCAResult(
+            results=[
+                make_dummy_result(lambda_value=1.0, pearson=0.3, p_value=0.5),
+                make_dummy_result(lambda_value=2.0, pearson=0.8, p_value=0.01),
+            ],
+            window_starts=np.array([0, 10]),
+            window_stops=np.array([10, 20]),
+            window_centers=np.array([0.05, 0.15]),
+        )
+
+        fig, ax = plot_sliding_window_metric(
+            scan,
+            metric="p_values",
+            max_components=1,
+            threshold=0.05,
+        )
+
+        assert ax.get_ylabel() == "Component"
+        assert len(ax.images) == 1
+        fig.clf()
 
     def test_best_window_index_prefers_lowest_p_value(self):
         class DummyScan:

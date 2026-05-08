@@ -8,16 +8,16 @@ does dataset-specific work once:
 2. Set channel types, montage, and average reference.
 3. Fit ICA on EEG channels.
 4. Detect EOG-related ICA components automatically.
-5. Save ICA diagnostics so components can be inspected manually.
-6. Apply selected ICA exclusions.
-7. Epoch, baseline-correct, average conditions, and save a compact ReDisCA
+5. Optionally keep a fixed number of ICA exclusions for conservative artifact
+   cleanup.
+6. Save ICA diagnostics so components can be inspected manually.
+7. Apply selected ICA exclusions.
+8. Epoch, baseline-correct, average conditions, and save a compact ReDisCA
    bundle.
 
 To manually override ICA rejection after inspecting the saved figures, edit
 ``MANUAL_ICA_EXCLUDE`` below and rerun the script.
 """
-
-from __future__ import annotations
 
 import json
 import sys
@@ -75,6 +75,12 @@ ICA_RANDOM_STATE = 0
 ICA_FIT_HIGH_PASS = 1.0
 ICA_EOG_THRESHOLD = 3.0
 EOG_CHANNELS = ["HEOG_left", "HEOG_right", "VEOG_lower"]
+
+# These ERP CORE files expose EOG channels but no dedicated ECG channel, so
+# this script can automate ocular artifact ranking only. If a target exclusion
+# count is set, the script fills the exclusion list up to that many components
+# using the strongest absolute EOG scores, then records that choice in metadata.
+ICA_EXCLUDE_TARGET_COUNT: int | None = 3
 
 # If automatic EOG detection is too conservative or too aggressive, inspect
 # examples/n170/work/ica_diagnostics/ and set component indices here.
@@ -242,6 +248,8 @@ raw.set_eeg_reference("average", verbose="ERROR")
 
 ica = None
 auto_ica_exclude: list[int] = []
+score_ranked_ica_exclude: list[int] = []
+aggregate_eog_scores: list[float] = []
 eog_scores_by_channel: dict[str, list[float]] = {}
 eog_components_by_channel: dict[str, list[int]] = {}
 
@@ -308,7 +316,31 @@ if RUN_ICA:
         plt.close(fig)
 
     auto_ica_exclude = sorted(set(auto_ica_exclude))
-    ica.exclude = sorted(set(auto_ica_exclude + MANUAL_ICA_EXCLUDE))
+
+    if ICA_EXCLUDE_TARGET_COUNT is not None:
+        score_arrays = [
+            np.abs(np.asarray(scores, dtype=np.float64))
+            for scores in eog_scores_by_channel.values()
+            if len(scores) == ica.n_components_
+        ]
+        if score_arrays:
+            aggregate_eog_scores_array = np.max(np.vstack(score_arrays), axis=0)
+            aggregate_eog_scores = [
+                float(score) for score in aggregate_eog_scores_array
+            ]
+            already_excluded = set(auto_ica_exclude + MANUAL_ICA_EXCLUDE)
+            for component_idx in np.argsort(aggregate_eog_scores_array)[::-1]:
+                if len(already_excluded) >= ICA_EXCLUDE_TARGET_COUNT:
+                    break
+                component_idx = int(component_idx)
+                if component_idx in already_excluded:
+                    continue
+                score_ranked_ica_exclude.append(component_idx)
+                already_excluded.add(component_idx)
+
+    ica.exclude = sorted(
+        set(auto_ica_exclude + score_ranked_ica_exclude + MANUAL_ICA_EXCLUDE)
+    )
     ica.save(ICA_FIF, overwrite=True, verbose="ERROR")
 
     raw = raw.copy()
@@ -396,7 +428,16 @@ metadata = {
         "fit_high_pass_hz": ICA_FIT_HIGH_PASS if RUN_ICA else None,
         "eog_threshold": ICA_EOG_THRESHOLD if RUN_ICA else None,
         "eog_channels": EOG_CHANNELS,
+        "ica_exclude_target_count": ICA_EXCLUDE_TARGET_COUNT,
+        "ica_exclude_note": (
+            "These ERP CORE N170 files include EOG channels but no ECG channel, "
+            "so automatic ranking is based on EOG scores only; inspect "
+            "diagnostics and use MANUAL_ICA_EXCLUDE for a reviewed cardiac "
+            "component."
+        ),
         "auto_exclude": auto_ica_exclude,
+        "score_ranked_exclude": score_ranked_ica_exclude,
+        "aggregate_eog_scores": aggregate_eog_scores,
         "manual_exclude": MANUAL_ICA_EXCLUDE,
         "final_exclude": [] if ica is None else [int(idx) for idx in ica.exclude],
         "eog_components_by_channel": eog_components_by_channel,
