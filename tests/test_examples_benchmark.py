@@ -44,6 +44,8 @@ def test_synthetic_benchmark_source_metrics_are_bounded():
     assert 0.0 <= metrics["true_rdm_corr"] <= 1.0
     assert 0.0 <= metrics["pattern_corr"] <= 1.0
     assert 0.0 <= metrics["filter_corr"] <= 1.0
+    assert 0.0 < metrics["p_value"] <= 1.0
+    assert isinstance(metrics["significant"], bool)
 
 
 def test_synthetic_benchmark_run_produces_expected_row_counts():

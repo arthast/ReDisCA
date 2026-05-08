@@ -815,8 +815,8 @@ class TestPermutationTest:
         r = len(lambdas)
         assert perm_result.p_values.shape == (r,)
         assert perm_result.significant.shape == (r,)
-        assert perm_result.null_max_lambdas is not None
-        assert perm_result.null_max_lambdas.shape == (50,)
+        assert perm_result.null_lambdas is not None
+        assert perm_result.null_lambdas.shape == (50, r)
 
     def test_p_values_range(self, small_data):
         """p-values must be in (0, 1]."""
@@ -906,7 +906,7 @@ class TestPermutationTest:
             random_state=0,
             return_null=False,
         )
-        assert perm_result.null_max_lambdas is None
+        assert perm_result.null_lambdas is None
 
     def test_partial_collection_returns_available_null(self, small_data, monkeypatch):
         """If too few valid permutations are collected, use them with a warning."""
@@ -919,17 +919,17 @@ class TestPermutationTest:
 
         calls = {"count": 0}
 
-        def fake_max_lambda(*args, **kwargs):
+        def fake_lambdas(*args, **kwargs):
             calls["count"] += 1
             if calls["count"] == 1:
-                return 1.0
+                return np.array([1.0, 0.5])
             if calls["count"] == 2:
-                return 2.0
+                return np.array([2.0, 1.0])
             raise ValueError("forced invalid permutation")
 
         monkeypatch.setattr(
-            "redisca.stats._max_lambda_for_permuted_pairs",
-            fake_max_lambda,
+            "redisca.stats._lambdas_for_weighted_pairs",
+            fake_lambdas,
         )
 
         with pytest.warns(RuntimeWarning, match="only 2/4 valid"):
@@ -943,9 +943,12 @@ class TestPermutationTest:
                 return_null=True,
             )
 
-        assert perm_result.null_max_lambdas is not None
-        assert_array_equal(perm_result.null_max_lambdas, np.array([1.0, 2.0]))
-        assert_allclose(perm_result.p_values, np.array([1.0, 2.0 / 3.0]))
+        assert perm_result.null_lambdas is not None
+        assert_array_equal(
+            perm_result.null_lambdas,
+            np.array([[1.0, 0.5], [2.0, 1.0]]),
+        )
+        assert_allclose(perm_result.p_values, np.array([1.0, 1.0 / 3.0]))
         assert_array_equal(perm_result.significant, np.array([False, False]))
 
     def test_zero_valid_permutations_returns_conservative_pvalues(
@@ -959,12 +962,12 @@ class TestPermutationTest:
         R_list = compute_all_R_ij(X, pairs)
         R_bar = compute_R_bar(R_list)
 
-        def fake_max_lambda(*args, **kwargs):
+        def fake_lambdas(*args, **kwargs):
             raise ValueError("forced invalid permutation")
 
         monkeypatch.setattr(
-            "redisca.stats._max_lambda_for_permuted_pairs",
-            fake_max_lambda,
+            "redisca.stats._lambdas_for_weighted_pairs",
+            fake_lambdas,
         )
 
         with pytest.warns(RuntimeWarning):
@@ -978,8 +981,34 @@ class TestPermutationTest:
                 return_null=True,
             )
 
-        assert perm_result.null_max_lambdas is not None
-        assert perm_result.null_max_lambdas.shape == (0,)
+        assert perm_result.null_lambdas is not None
+        assert perm_result.null_lambdas.shape == (0, 2)
+        assert_allclose(perm_result.p_values, np.array([1.0, 1.0]))
+        assert_array_equal(perm_result.significant, np.array([False, False]))
+
+    def test_negative_observed_lambdas_are_not_significant(self, small_data, monkeypatch):
+        """The test targets high positive eigenvalues, not inverse matches."""
+        X, target_rdm = small_data
+        C, N, T = X.shape
+
+        pairs = pair_indices(C)
+        R_list = compute_all_R_ij(X, pairs)
+        R_bar = compute_R_bar(R_list)
+
+        monkeypatch.setattr(
+            "redisca.stats._lambdas_for_weighted_pairs",
+            lambda *args, **kwargs: np.array([-2.0, -3.0]),
+        )
+
+        perm_result = permutation_test_redisca(
+            R_list=R_list,
+            R_bar=R_bar,
+            target_rdm=target_rdm,
+            observed_lambdas=np.array([-0.5, -1.5]),
+            n_perm=5,
+            random_state=0,
+        )
+
         assert_allclose(perm_result.p_values, np.array([1.0, 1.0]))
         assert_array_equal(perm_result.significant, np.array([False, False]))
 
@@ -998,7 +1027,7 @@ class TestPermutationTest:
         """fit_redisca should reject invalid permutation parameters."""
         X, target_rdm = small_data
 
-        with pytest.raises(ValueError, match=match):
+        with pytest.raises((TypeError, ValueError), match=match):
             fit_redisca(
                 X,
                 target_rdm,
@@ -1030,7 +1059,7 @@ class TestPermutationTest:
         R_bar_d = compute_R_bar_d(R_list, R_bar, d_tilde)
         _, lambdas = solve_gep(R_bar_d, R_bar)
 
-        with pytest.raises(ValueError, match=match):
+        with pytest.raises((TypeError, ValueError), match=match):
             permutation_test_redisca(
                 R_list=R_list,
                 R_bar=R_bar,
@@ -1421,6 +1450,9 @@ class TestMNEVisualization:
         assert len(calls) == 2
         assert calls[0]["kwargs"]["vlim"] == calls[1]["kwargs"]["vlim"]
         assert np.isclose(abs(calls[0]["kwargs"]["vlim"][0]), calls[0]["kwargs"]["vlim"][1])
+        assert calls[0]["kwargs"]["outlines"] == "head"
+        assert calls[0]["kwargs"]["extrapolate"] == "head"
+        assert calls[0]["kwargs"]["sphere"] == (0.0, 0.0, 0.0, 0.095)
         plt.close(fig)
 
     def test_pattern_topomaps_info_channel_mismatch_raises(self, result_no_pvalues, monkeypatch):

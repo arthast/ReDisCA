@@ -26,6 +26,12 @@ For MNE topomaps and EEG/MEG example scripts:
 .venv/bin/python -m pip install -e ".[mne]"
 ```
 
+For the optional comparison example against `mne-rsa`:
+
+```bash
+.venv/bin/python -m pip install -e ".[mne,mne-rsa]"
+```
+
 All example commands below assume the same project environment. If `python3`
 does not see MNE on your machine, use `.venv/bin/python`.
 
@@ -78,6 +84,9 @@ export_result(result, "redisca_output")
 print(result.pearson_scores)
 print(result.p_values)
 ```
+
+Permutation testing reshuffles the upper-triangular target-RDM entries against
+the fixed condition-pair data matrices and reports component-wise p-values.
 
 ## Sliding Windows
 
@@ -164,6 +173,7 @@ Main scripts:
 
 - `examples/synthetic_benchmark.py` runs synthetic benchmark simulations.
 - `examples/analyze_mne_sample_evokeds.py` runs ReDisCA on ready MNE sample evokeds.
+- `examples/compare_mne_rsa_sample_evokeds.py` compares ReDisCA with sensor-level MNE-RSA.
 - `examples/n170/prepare_erpcore_n170.py` downloads/prepares ERP CORE N170 with ICA diagnostics.
 - `examples/n170/reproduce_erpcore_n170.py` runs ERP CORE N170 analysis from a prepared bundle.
 

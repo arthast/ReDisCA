@@ -6,17 +6,12 @@ This example starts from ready condition-averaged data produced by
 examples: load data, define model RDMs, run analysis, plot the results.
 """
 
-import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 N170_ROOT = Path(__file__).resolve().parent
-ROOT = N170_ROOT.parents[1]
-SRC_DIR = ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
 
 import redisca
 from redisca.report import (
@@ -46,6 +41,8 @@ SAVE_FIGURES = True
 
 RANK: int | str | None = "auto"
 PERMUTATION_TEST = True
+# The library uses one permutation test: reshuffle target-RDM upper-triangle
+# entries and report component-wise p-values.
 N_PERM = 1000
 ALPHA = 0.05
 RANDOM_STATE = 0
@@ -283,5 +280,6 @@ if SAVE_FIGURES:
 
 if SAVE_FIGURES:
     print(f"Saved figures to {FIGURE_ROOT}")
-
-plt.show()
+    plt.close("all")
+else:
+    plt.show()

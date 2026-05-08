@@ -23,7 +23,8 @@ This is the only synthetic example. It runs a multi-source simulation:
 - 4 planted sources;
 - 6 conditions;
 - source time series generated as `S = M @ Z`;
-- noisy target RDMs and 1/f-like sensor noise.
+- noisy target RDMs and 1/f-like sensor noise;
+- the same ReDisCA permutation test used by the real-data examples.
 
 Outputs go to:
 
@@ -65,6 +66,35 @@ Outputs go to:
 ```text
 examples/repro_outputs/mne_sample_evokeds/
 ```
+
+## ReDisCA vs MNE-RSA
+
+```bash
+.venv/bin/python -m pip install -e ".[mne,mne-rsa]"
+.venv/bin/python examples/compare_mne_rsa_sample_evokeds.py
+```
+
+This comparison uses the same ready MNE sample evokeds and the same
+auditory-vs-visual target RDM as the ready-evoked example.
+
+It runs:
+
+- ReDisCA over 100 ms sliding windows
+- MNE-RSA temporal searchlight over the same 100 ms effective window
+- MNE-RSA sensor-time searchlight for a spatial RSA topomap
+
+Outputs go to:
+
+```text
+examples/repro_outputs/mne_rsa_comparison/
+```
+
+The most useful figures are:
+
+- `redisca_vs_mne_rsa_scores.png`: ReDisCA component scores and MNE-RSA RSA
+  score over time
+- `redisca_vs_mne_rsa_topomaps.png`: ReDisCA component pattern next to the
+  MNE-RSA sensor searchlight map
 
 ## ERP CORE N170
 
@@ -130,6 +160,10 @@ Then it runs:
 - a fixed 150-250 ms car-specific N170 analysis
 - interactive Matplotlib/MNE figures for RDMs, topographies, component time
   series, and sliding-window p-values
+
+All examples use the same ReDisCA permutation test: target-RDM upper-triangle
+entries are reshuffled against fixed condition-pair data matrices, and
+component-wise p-values are reported.
 
 Saved figures are grouped under:
 

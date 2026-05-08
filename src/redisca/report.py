@@ -496,6 +496,7 @@ def plot_window_metric_heatmap(
     threshold_label: str | None = None,
     empty_label: str | None = None,
     x_label: str = "Window center (ms)",
+    mark_threshold: bool = False,
 ) -> None:
     """Plot a component-by-window heatmap."""
     fig, ax = plt.subplots(figsize=(10, 4.5))
@@ -519,7 +520,7 @@ def plot_window_metric_heatmap(
             linewidth=1.2,
             alpha=0.9,
         )
-    if threshold is not None:
+    if threshold is not None and mark_threshold:
         finite_mask = np.isfinite(matrix)
         threshold_mask = finite_mask & (matrix < threshold)
         if np.any(threshold_mask):
@@ -697,6 +698,7 @@ def save_sliding_window_report(
         highlight_center_ms=highlight_center,
         threshold=alpha,
         threshold_label=f"No p < {alpha:g}",
+        mark_threshold=False,
         x_label=x_label,
     )
     plot_window_metric_heatmap(

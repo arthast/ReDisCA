@@ -39,6 +39,9 @@ dev = [
 mne = [
     "mne>=1.6",
 ]
+mne-rsa = [
+    "mne-rsa>=1.0",
+]
 
 [project.urls]
 Repository = "https://github.com/arthast/ReDisCA"

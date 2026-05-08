@@ -320,6 +320,21 @@ class TestWindowHelpers:
         assert len(ax.images) == 1
         fig.clf()
 
+    def test_window_metric_heatmap_does_not_mark_threshold_by_default(self, tmp_path):
+        from redisca.report import plot_window_metric_heatmap
+
+        plot_window_metric_heatmap(
+            np.array([[0.01, 0.5]]),
+            np.array([100.0, 200.0]),
+            title="No markers",
+            colorbar_label="p-value",
+            output_path=tmp_path / "heatmap.png",
+            cmap="magma_r",
+            threshold=0.05,
+        )
+
+        assert (tmp_path / "heatmap.png").exists()
+
     def test_best_window_index_prefers_lowest_p_value(self):
         class DummyScan:
             def component_metric_matrix(self, name, max_components):

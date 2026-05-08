@@ -23,7 +23,6 @@ import pandas as pd
 from scipy.signal import butter, sosfiltfilt
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = ROOT / "src"
 
 from redisca import fit_redisca
 from redisca.summary import best_component_by_pearson
@@ -48,7 +47,10 @@ SFREQ = 100.0
 SOURCE_CUTOFF_HZ = 2.0
 RDM_NOISE_SCALE = 0.25
 TOPOGRAPHY_NOISE_SCALE = 0.15
-RANDOM_STATE = 0
+RANDOM_STATE = 103
+PERMUTATION_TEST = True
+N_PERM = 50
+ALPHA = 0.05
 
 
 METRICS = [
@@ -107,7 +109,7 @@ def sample_source_timeseries(
     sfreq: float = SFREQ,
     cutoff_hz: float = SOURCE_CUTOFF_HZ,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Generate source activations with the article's ``S = M @ Z`` recipe."""
+    """Generate source activations with the ``S = M @ Z`` recipe."""
     if mixing is None:
         mixing = rng.standard_normal((n_conditions, n_conditions))
 
@@ -259,21 +261,45 @@ def make_synthetic_dataset(
 def evaluate_source(
     dataset: dict[str, object],
     source_index: int,
-) -> dict[str, float | int]:
+    *,
+    permutation_test: bool = PERMUTATION_TEST,
+    n_perm: int = N_PERM,
+    alpha: float = ALPHA,
+    random_state: int | None = None,
+) -> dict[str, float | int | bool]:
     """Fit ReDisCA for one target RDM and measure source recovery."""
     X = dataset["X"]
     target_rdm = dataset["target_rdms"][source_index]
     true_rdm = dataset["true_rdms"][source_index]
     true_topography = dataset["topographies"][:, source_index]
 
-    result = fit_redisca(X, target_rdm)
+    result = fit_redisca(
+        X,
+        target_rdm,
+        permutation_test=permutation_test,
+        n_perm=n_perm,
+        alpha=alpha,
+        random_state=random_state,
+    )
     component = best_component_by_pearson(result)
     recovered_rdm = result.component_rdms[component]
+    p_value = (
+        float(result.p_values[component])
+        if result.p_values is not None
+        else np.nan
+    )
+    significant = (
+        bool(result.significant[component])
+        if result.significant is not None
+        else False
+    )
 
     return {
         "source_index": int(source_index),
         "component": int(component),
         "lambda": float(result.lambdas[component]),
+        "p_value": p_value,
+        "significant": significant,
         "target_rdm_corr": float(result.pearson_scores[component]),
         "true_rdm_corr": rdm_pearson(recovered_rdm, true_rdm),
         "pattern_corr": abs_corr(result.A[:, component], true_topography),
@@ -291,6 +317,9 @@ def run_synthetic_benchmark(
     n_conditions: int = N_CONDITIONS,
     n_trials: int = N_TRIALS,
     rdm_noise_scale: float = RDM_NOISE_SCALE,
+    permutation_test: bool = PERMUTATION_TEST,
+    n_perm: int = N_PERM,
+    alpha: float = ALPHA,
     random_state: int = RANDOM_STATE,
 ) -> pd.DataFrame:
     """Run Monte Carlo recovery trials."""
@@ -299,7 +328,7 @@ def run_synthetic_benchmark(
         rng.standard_normal((n_conditions, n_conditions))
         for _ in range(n_sources)
     ]
-    records: list[dict[str, float | int]] = []
+    records: list[dict[str, float | int | bool]] = []
 
     for trial in range(n_iter):
         for snr in snr_levels:
@@ -315,7 +344,20 @@ def run_synthetic_benchmark(
                 mixings=mixings,
             )
             for source_index in range(n_sources):
-                row = evaluate_source(dataset, source_index)
+                perm_seed = (
+                    random_state
+                    + 10000 * int(trial)
+                    + 100 * int(round(float(snr) * 10.0))
+                    + int(source_index)
+                )
+                row = evaluate_source(
+                    dataset,
+                    source_index,
+                    permutation_test=permutation_test,
+                    n_perm=n_perm,
+                    alpha=alpha,
+                    random_state=perm_seed,
+                )
                 row["trial"] = int(trial)
                 row["snr"] = float(snr)
                 records.append(row)
@@ -391,7 +433,14 @@ def plot_recovery_example(output_path: Path, *, random_state: int = RANDOM_STATE
     )
     last_image = None
     for src in range(N_SOURCES):
-        result = fit_redisca(dataset["X"], dataset["target_rdms"][src])
+        result = fit_redisca(
+            dataset["X"],
+            dataset["target_rdms"][src],
+            permutation_test=PERMUTATION_TEST,
+            n_perm=N_PERM,
+            alpha=ALPHA,
+            random_state=random_state + src,
+        )
         component = best_component_by_pearson(result)
         true_topography = dataset["topographies"][:, src]
         recovered_pattern = result.A[:, component]
@@ -413,7 +462,11 @@ def plot_recovery_example(output_path: Path, *, random_state: int = RANDOM_STATE
         plot_rdm_panel(
             axes[src, 2],
             result.component_rdms[component],
-            f"Recovered RDM\nr={result.pearson_scores[component]:.2f}",
+            (
+                f"Recovered RDM\n"
+                f"r={result.pearson_scores[component]:.2f}, "
+                f"p={result.p_values[component]:.3f}"
+            ),
             labels=labels,
         )
 

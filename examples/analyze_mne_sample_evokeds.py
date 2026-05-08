@@ -10,15 +10,11 @@ library use case: prepared condition responses in, ReDisCA components and
 patterns out.
 """
 
-import sys
 from pathlib import Path
 
 import mne
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
 
 from redisca import (
     binary_rdm,
@@ -58,7 +54,9 @@ SCAN_TMAX = 0.350
 WINDOW_MS = 100.0
 STEP_MS = 20.0
 
-# ReDisCA settings. Increase N_PERM for a more serious significance estimate.
+# ReDisCA settings. Permutation testing uses the library's single test:
+# reshuffle target-RDM upper-triangle entries and report component-wise p-values.
+# Increase N_PERM for a more serious significance estimate.
 RANK: int | str | None = "auto"
 PERMUTATION_TEST = True
 N_PERM = 100

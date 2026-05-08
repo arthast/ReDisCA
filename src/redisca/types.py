@@ -53,12 +53,12 @@ class PermutationTestResult:
     Attributes:
         p_values: p-value for each component (r,).
         significant: Boolean mask — True where p < alpha (r,).
-        null_max_lambdas: Max eigenvalue from each permutation (n_perm,).
-            Only populated when ``return_null=True``.
+        null_lambdas: Per-component eigenvalues from each permutation
+            (n_perm, r). Only populated when ``return_null=True``.
     """
     p_values: NDArray[np.floating]
     significant: NDArray[np.bool_]
-    null_max_lambdas: Optional[NDArray[np.floating]] = None
+    null_lambdas: Optional[NDArray[np.floating]] = None
 
 
 @dataclass

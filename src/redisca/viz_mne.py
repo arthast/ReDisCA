@@ -19,6 +19,9 @@ from .types import ReDisCAResult
 from .viz import add_panel_colorbar
 
 
+DEFAULT_TOPOMAP_SPHERE = (0.0, 0.0, 0.0, 0.095)
+
+
 def _require_mne():
     """Import MNE lazily and raise a helpful error if it is unavailable."""
     try:
@@ -102,6 +105,10 @@ def plot_pattern_topomap_panel(
     cmap: str = "RdBu_r",
     sensors: bool = True,
     contours: int = 6,
+    outlines: str | dict | None = "head",
+    sphere: tuple[float, float, float, float] | str | None = DEFAULT_TOPOMAP_SPHERE,
+    extrapolate: str = "head",
+    border: str | float = "mean",
     vlim: tuple[float | None, float | None] | None = (-1.0, 1.0),
     colorbar: bool = True,
     colorbar_label: str = "Weight",
@@ -118,6 +125,10 @@ def plot_pattern_topomap_panel(
         cmap=cmap,
         sensors=sensors,
         contours=contours,
+        outlines=outlines,
+        sphere=sphere,
+        extrapolate=extrapolate,
+        border=border,
         vlim=vlim,
     )
     ax.set_title(title, fontsize=9, pad=6)
@@ -146,6 +157,10 @@ def plot_pattern_topomaps(
     mask=None,
     mask_params: dict | None = None,
     contours: int = 6,
+    outlines: str | dict | None = "head",
+    sphere: tuple[float, float, float, float] | str | None = DEFAULT_TOPOMAP_SPHERE,
+    extrapolate: str = "head",
+    border: str | float = "mean",
     vlim: tuple[float | None, float | None] | str | None = "joint",
     colorbar: bool = True,
     save_path: str | Path | None = None,
@@ -166,6 +181,14 @@ def plot_pattern_topomaps(
         mask: Optional boolean sensor mask.
         mask_params: Optional style dictionary for masked sensors.
         contours: Number of contour lines.
+        outlines: Head outline style passed to MNE.
+        sphere: Optional MNE sphere definition for the head outline. The
+            default is a standard 95 mm EEG head sphere, which keeps the
+            heatmap boundary visually aligned with the head outline for common
+            EEG montages.
+        extrapolate: Extrapolation mode. The default ``"head"`` keeps the
+            heatmap fill aligned with the visible head outline.
+        border: Border handling passed to MNE.
         vlim: Colour limits. ``"joint"`` uses the same symmetric scale for all
             selected components.
         colorbar: Whether to add a shared colorbar.
@@ -203,8 +226,13 @@ def plot_pattern_topomaps(
     else:
         raise ValueError("vlim must be None, a (vmin, vmax) tuple, or 'joint'")
 
-    fig_width = 4.5 * len(idxs) + (0.8 if colorbar else 0.0)
-    fig, axes = plt.subplots(1, len(idxs), figsize=(fig_width, 4), squeeze=False)
+    fig_width = 4.4 * len(idxs) + (1.15 if colorbar else 0.0)
+    fig, axes = plt.subplots(
+        1,
+        len(idxs),
+        figsize=(fig_width, 4.15),
+        squeeze=False,
+    )
     axes = axes.ravel()
 
     image = None
@@ -218,6 +246,10 @@ def plot_pattern_topomaps(
             mask=mask,
             mask_params=mask_params,
             contours=contours,
+            outlines=outlines,
+            sphere=sphere,
+            extrapolate=extrapolate,
+            border=border,
             cmap=cmap,
             vlim=vlim_resolved,
             axes=axes[panel],
@@ -231,8 +263,20 @@ def plot_pattern_topomaps(
             title_parts.append(f"p={result.p_values[comp_idx]:.3f}")
         axes[panel].set_title("\n".join(title_parts))
 
+    if colorbar:
+        fig.subplots_adjust(
+            left=0.04,
+            right=0.82,
+            bottom=0.10,
+            top=0.84,
+            wspace=0.55,
+        )
+    else:
+        fig.tight_layout()
+
     if colorbar and image is not None:
-        cbar = fig.colorbar(image, ax=axes, fraction=0.026, pad=0.08)
+        cbar_ax = fig.add_axes([0.88, 0.22, 0.022, 0.52])
+        cbar = fig.colorbar(image, cax=cbar_ax)
         if normalize == "maxabs":
             cbar.set_label("Pattern weight (maxabs-normalized)")
         elif normalize == "zscore":
@@ -240,10 +284,6 @@ def plot_pattern_topomaps(
         else:
             cbar.set_label("Pattern weight")
 
-    if colorbar:
-        fig.subplots_adjust(left=0.04, right=0.84, bottom=0.08, top=0.84, wspace=0.60)
-    else:
-        fig.tight_layout()
     _maybe_save_figure(fig, save_path, dpi)
     return fig, axes
 
