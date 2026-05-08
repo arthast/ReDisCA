@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-import matplotlib
 import matplotlib.pyplot as plt
 import types
 from numpy.testing import assert_allclose, assert_array_equal
@@ -694,7 +693,7 @@ class TestValidation:
 # =============================================================================
 
 class TestMathematicalProperties:
-    """Tests verifying mathematical properties from the paper."""
+    """Tests verifying mathematical properties of the implementation."""
 
     def test_lambda_equals_w_R_bar_d_w(self, simple_data):
         """Lambda should equal w.T @ R_bar_d @ w for each component."""
@@ -929,7 +928,7 @@ class TestPermutationTest:
             raise ValueError("forced invalid permutation")
 
         monkeypatch.setattr(
-            "redisca.stats._max_lambda_for_permuted_rdm",
+            "redisca.stats._max_lambda_for_permuted_pairs",
             fake_max_lambda,
         )
 
@@ -964,7 +963,7 @@ class TestPermutationTest:
             raise ValueError("forced invalid permutation")
 
         monkeypatch.setattr(
-            "redisca.stats._max_lambda_for_permuted_rdm",
+            "redisca.stats._max_lambda_for_permuted_pairs",
             fake_max_lambda,
         )
 
@@ -1040,7 +1039,6 @@ class TestPermutationTest:
                 random_state=0,
                 **kwargs,
             )
-
 
 # =============================================================================
 # Test: Export
@@ -1122,79 +1120,66 @@ class TestVisualization:
     # -- A) plot_rdm ------------------------------------------------------
 
     def test_plot_rdm_basic(self, result_no_pvalues):
-        import matplotlib
-        matplotlib.use("Agg")
         fig, ax = plot_rdm(result_no_pvalues.target_rdm, title="Target")
         assert fig is not None
         assert ax is not None
         plt.close(fig)
 
     def test_plot_rdm_show_values(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, ax = plot_rdm(result_no_pvalues.target_rdm, show_values=True)
         assert fig is not None
         plt.close(fig)
 
     def test_plot_rdm_non_square_raises(self):
-        import matplotlib; matplotlib.use("Agg")
         with pytest.raises(ValueError, match="square"):
             plot_rdm(np.zeros((3, 4)))
 
     # -- B) plot_top_component_rdms --------------------------------------
 
     def test_top_rdms_with_target(self, result_with_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, axes = plot_top_component_rdms(result_with_pvalues, k=2, include_target=True)
         assert len(axes) == 3  # target + 2 components
         plt.close(fig)
 
     def test_top_rdms_without_target(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, axes = plot_top_component_rdms(result_no_pvalues, k=2, include_target=False)
         assert len(axes) == 2
         plt.close(fig)
 
     def test_top_rdms_k_exceeds_components(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         r = result_no_pvalues.n_components
         fig, axes = plot_top_component_rdms(result_no_pvalues, k=r + 10, include_target=False)
         assert len(axes) == r
         plt.close(fig)
 
     def test_top_rdms_order_lambda(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, _ = plot_top_component_rdms(result_no_pvalues, k=2, order="lambda")
         assert fig is not None
         plt.close(fig)
 
     def test_top_rdms_bad_order(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         with pytest.raises(ValueError, match="order"):
             plot_top_component_rdms(result_no_pvalues, order="bad")
 
     # -- C) plot_component_scores ----------------------------------------
 
     def test_scores_basic(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, ax = plot_component_scores(result_no_pvalues)
         assert fig is not None
         plt.close(fig)
 
     def test_scores_with_p(self, result_with_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, ax = plot_component_scores(result_with_pvalues, show_p=True)
         assert fig is not None
         plt.close(fig)
 
     def test_scores_show_p_no_pvalues(self, result_no_pvalues):
         """show_p=True but p_values is None — should not crash."""
-        import matplotlib; matplotlib.use("Agg")
         fig, ax = plot_component_scores(result_no_pvalues, show_p=True)
         assert fig is not None
         plt.close(fig)
 
     def test_scores_order_pearson(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, _ = plot_component_scores(result_no_pvalues, order="pearson")
         assert fig is not None
         plt.close(fig)
@@ -1202,7 +1187,6 @@ class TestVisualization:
     # -- D) plot_component_lambdas ---------------------------------------
 
     def test_lambdas_basic(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, ax = plot_component_lambdas(result_no_pvalues)
         assert fig is not None
         plt.close(fig)
@@ -1210,14 +1194,12 @@ class TestVisualization:
     # -- E) plot_component_timeseries -----------------------------------
 
     def test_component_timeseries_default(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, axes = plot_component_timeseries(result_no_pvalues)
         assert fig is not None
         assert len(axes) >= 1
         plt.close(fig)
 
     def test_component_timeseries_with_time_and_names(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         time = np.linspace(-0.1, 0.4, result_no_pvalues.n_timepoints)
         names = [f"Cond {i}" for i in range(result_no_pvalues.n_conditions)]
         fig, axes = plot_component_timeseries(
@@ -1231,7 +1213,6 @@ class TestVisualization:
         plt.close(fig)
 
     def test_component_timeseries_time_unit_ms_and_time_zero(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         time = np.linspace(-0.05, 0.2, result_no_pvalues.n_timepoints)
         fig, axes = plot_component_timeseries(
             result_no_pvalues,
@@ -1249,13 +1230,11 @@ class TestVisualization:
         plt.close(fig)
 
     def test_component_timeseries_bad_time_unit(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         time = np.linspace(-0.05, 0.2, result_no_pvalues.n_timepoints)
         with pytest.raises(ValueError, match="time_unit"):
             plot_component_timeseries(result_no_pvalues, time=time, time_unit="minutes")
 
     def test_component_timeseries_figure_legend(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, axes = plot_component_timeseries(
             result_no_pvalues,
             idxs=[0, 1],
@@ -1265,7 +1244,6 @@ class TestVisualization:
         plt.close(fig)
 
     def test_component_timeseries_separate_conditions(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, axes = plot_component_timeseries(
             result_no_pvalues,
             idxs=[0, 1],
@@ -1276,7 +1254,6 @@ class TestVisualization:
         plt.close(fig)
 
     def test_component_timeseries_bad_condition_layout(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         with pytest.raises(ValueError, match="condition_layout"):
             plot_component_timeseries(
                 result_no_pvalues,
@@ -1284,44 +1261,37 @@ class TestVisualization:
             )
 
     def test_component_timeseries_bad_time_len(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         with pytest.raises(ValueError, match="time must have shape"):
             plot_component_timeseries(result_no_pvalues, time=np.arange(3))
 
     def test_component_timeseries_bad_condition_names_len(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         with pytest.raises(ValueError, match="condition_names"):
             plot_component_timeseries(result_no_pvalues, condition_names=["a", "b"])
 
     # -- 2.1) plot_patterns ----------------------------------------------
 
     def test_patterns_default(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, axes = plot_patterns(result_no_pvalues)
         assert fig is not None
         assert len(axes) <= 3
         plt.close(fig)
 
     def test_patterns_with_names(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         names = [f"Ch{i}" for i in range(result_no_pvalues.n_channels)]
         fig, axes = plot_patterns(result_no_pvalues, channel_names=names)
         assert fig is not None
         plt.close(fig)
 
     def test_patterns_custom_idxs(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, axes = plot_patterns(result_no_pvalues, idxs=[0])
         assert len(axes) == 1
         plt.close(fig)
 
     def test_patterns_bad_mode(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         with pytest.raises(ValueError, match="mode"):
             plot_patterns(result_no_pvalues, mode="topo")
 
     def test_patterns_wrong_channel_names_len(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         with pytest.raises(ValueError, match="channel_names"):
             plot_patterns(result_no_pvalues, channel_names=["a", "b"])
 
@@ -1329,7 +1299,6 @@ class TestVisualization:
 
     def test_top_rdms_pearson_pos(self, result_no_pvalues):
         """pearson_mode='pos' should pick the highest positive r."""
-        import matplotlib; matplotlib.use("Agg")
         fig, _ = plot_top_component_rdms(
             result_no_pvalues, k=2, order="pearson", pearson_mode="pos",
         )
@@ -1338,7 +1307,6 @@ class TestVisualization:
 
     def test_top_rdms_pearson_abs(self, result_no_pvalues):
         """pearson_mode='abs' should still work."""
-        import matplotlib; matplotlib.use("Agg")
         fig, _ = plot_top_component_rdms(
             result_no_pvalues, k=2, order="pearson", pearson_mode="abs",
         )
@@ -1346,14 +1314,12 @@ class TestVisualization:
         plt.close(fig)
 
     def test_top_rdms_bad_pearson_mode(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         with pytest.raises(ValueError, match="pearson_mode"):
             plot_top_component_rdms(
                 result_no_pvalues, order="pearson", pearson_mode="bad",
             )
 
     def test_scores_pearson_pos(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, _ = plot_component_scores(
             result_no_pvalues, order="pearson", pearson_mode="pos",
         )
@@ -1361,7 +1327,6 @@ class TestVisualization:
         plt.close(fig)
 
     def test_scores_pearson_abs(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, _ = plot_component_scores(
             result_no_pvalues, order="pearson", pearson_mode="abs",
         )
@@ -1372,7 +1337,6 @@ class TestVisualization:
 
     def test_top_rdms_no_normalize(self, result_no_pvalues):
         """normalize_rdms=False should show raw values."""
-        import matplotlib; matplotlib.use("Agg")
         fig, _ = plot_top_component_rdms(
             result_no_pvalues, k=1, normalize_rdms=False,
         )
@@ -1380,7 +1344,6 @@ class TestVisualization:
         plt.close(fig)
 
     def test_top_rdms_shared_colorbar(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, _ = plot_top_component_rdms(
             result_no_pvalues, k=2, include_target=True, shared_colorbar=True,
         )
@@ -1388,7 +1351,6 @@ class TestVisualization:
         plt.close(fig)
 
     def test_top_rdms_individual_colorbars(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, _ = plot_top_component_rdms(
             result_no_pvalues, k=2, include_target=True, shared_colorbar=False,
         )
@@ -1398,25 +1360,21 @@ class TestVisualization:
     # -- new: pattern normalize ------------------------------------------
 
     def test_patterns_normalize_none(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, _ = plot_patterns(result_no_pvalues, normalize="none")
         assert fig is not None
         plt.close(fig)
 
     def test_patterns_normalize_maxabs(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, _ = plot_patterns(result_no_pvalues, normalize="maxabs")
         assert fig is not None
         plt.close(fig)
 
     def test_patterns_normalize_zscore(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         fig, _ = plot_patterns(result_no_pvalues, normalize="zscore")
         assert fig is not None
         plt.close(fig)
 
     def test_patterns_bad_normalize(self, result_no_pvalues):
-        import matplotlib; matplotlib.use("Agg")
         with pytest.raises(ValueError, match="normalize"):
             plot_patterns(result_no_pvalues, normalize="bad")
 
@@ -1435,7 +1393,6 @@ class TestMNEVisualization:
             plot_pattern_topomaps(result_no_pvalues, info)
 
     def test_pattern_topomaps_with_fake_mne(self, result_no_pvalues, monkeypatch):
-        import matplotlib; matplotlib.use("Agg")
 
         calls = []
 

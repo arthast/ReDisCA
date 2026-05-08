@@ -46,6 +46,16 @@ Term-Paper/
 # graphics
 examples/figures
 examples/output
+examples/repro_outputs/
 redisca_output
 
+# Downloaded datasets and generated example artifacts
+examples/data/
+examples/n170/data/
+examples/n170/prepared/
+examples/n170/work/
+examples/n170/outputs/
+
 main.py
+.main.py
+/main.py

@@ -11,6 +11,8 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.linalg import eigh
 
+from .validation import resolve_rank
+
 
 def pair_indices(C: int) -> List[Tuple[int, int]]:
     """Generate list of all condition pairs (i, j) where i < j.
@@ -256,80 +258,6 @@ def renormalize_filters_in_metric(
     return W
 
 
-def validate_rank(
-        rank: int | str | None,
-        N: int,
-) -> int | str | None:
-    """Validate rank parameter."""
-    if rank is None:
-        return None
-
-    if isinstance(rank, str):
-        if rank == "auto":
-            return rank
-        raise ValueError(
-            f"rank must be 'auto', None, or an integer in [1, {N}], got string {rank!r}"
-        )
-
-    if isinstance(rank, (bool, np.bool_)):
-        raise TypeError(
-            "rank must be 'auto', None, or a positive integer; bool is not allowed"
-        )
-
-    if isinstance(rank, (int, np.integer)):
-        rank = int(rank)
-        if rank < 1:
-            raise ValueError(f"rank must be >= 1, got {rank}")
-        if rank > N:
-            raise ValueError(f"rank must be <= N ({N}), got {rank}")
-        return rank
-
-    raise TypeError(
-        f"rank must be 'auto', None, or a positive integer in [1, {N}], "
-        f"got {type(rank).__name__}"
-    )
-
-
-def resolve_rank(
-        rank: int | str | None,
-        available_rank: int,
-        N: int,
-        tol: float,
-) -> int:
-    rank = validate_rank(rank, N)
-
-    if available_rank == 0:
-        raise ValueError(
-            "No positive eigenvalues found in R_bar. "
-            "Data or time window is uninformative."
-        )
-
-    if rank == "auto":
-        return available_rank
-
-    if rank is None:
-        if available_rank < N:
-            warn(
-                f"rank=None means no explicit user rank cap, not forced full rank. "
-                f"R_bar has only {available_rank} eigenvalues > tol={tol}, "
-                f"so {available_rank} components will be returned instead of N={N}.",
-                RuntimeWarning,
-                stacklevel=2
-            )
-        return available_rank
-
-    if rank > available_rank:
-        warn(
-            f"Requested rank={rank}, but only {available_rank} eigenvalues of "
-            f"R_bar exceed tol={tol}. Using rank={available_rank}.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        return available_rank
-
-    return rank
-
-
 def solve_gep(
         R_bar_d: NDArray[np.floating],
         R_bar: NDArray[np.floating],
@@ -338,9 +266,9 @@ def solve_gep(
 ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
     """Solve generalized eigenvalue problem using principal subspace approach.
 
-    As per the paper: if the GEP is not full rank, the procedure is performed
-    in the lower dimensional principal space and topographies are transformed
-    back to the original sensor space.
+    If the GEP is not full rank, the procedure is performed in the lower
+    dimensional principal space and topographies are transformed back to the
+    original sensor space.
 
     Solves: R_bar_d @ w = lambda * R_bar @ w
     Subject to: w.T @ R_bar @ w = 1

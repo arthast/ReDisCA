@@ -2,8 +2,8 @@
 
 Implements a permutation test for assessing the significance of ReDisCA
 components. The null hypothesis is that the correspondence between the
-target RDM and the data is absent. Condition labels are permuted to build
-a null distribution of the max eigenvalue (lambda_max) across permutations.
+target RDM and the data is absent. The test destroys the correspondence
+between condition-pair data matrices and target-RDM pair labels.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from numpy.typing import NDArray
 from scipy.linalg import LinAlgError as SciPyLinAlgError
 
 from .types import PermutationTestResult
+from .validation import validate_permutation_params
 from .core import (
     vectorize_upper,
     standardize,
@@ -25,59 +26,15 @@ from .core import (
 )
 
 
-def _validate_permutation_params(
-    n_perm: int,
-    alpha: float,
-    tol: float,
-) -> None:
-    """Validate statistical inference parameters."""
-    if isinstance(n_perm, (bool, np.bool_)) or not isinstance(n_perm, (int, np.integer)):
-        raise TypeError(
-            "n_perm must be a positive integer, got "
-            f"{type(n_perm).__name__}"
-        )
-    if int(n_perm) < 1:
-        raise ValueError(f"n_perm must be >= 1, got {n_perm}")
-
-    if not np.isfinite(alpha) or not (0.0 < float(alpha) < 1.0):
-        raise ValueError(f"alpha must satisfy 0 < alpha < 1, got {alpha}")
-
-    if not np.isfinite(tol) or float(tol) <= 0.0:
-        raise ValueError(f"tol must be a positive finite number, got {tol}")
-
-
-
-def _permute_rdm(
-    D: NDArray[np.floating],
-    perm: NDArray[np.intp],
-) -> NDArray[np.floating]:
-    """Permute rows and columns of an RDM according to *perm*.
-
-    D^{(π)}_{ij} = D_{π(i), π(j)}
-
-    Symmetry and zero diagonal are preserved by construction.
-    """
-    return D[np.ix_(perm, perm)]
-
-
-def _max_lambda_for_permuted_rdm(
-    D_perm: NDArray[np.floating],
+def _max_lambda_for_permuted_pairs(
+    d_vec_perm: NDArray[np.floating],
     R_list: List[NDArray[np.floating]],
     R_bar: NDArray[np.floating],
-    pairs: list[tuple[int, int]],
     rank: int | str | None,
     tol: float,
 ) -> float:
-    """Compute the maximum eigenvalue for a permuted target RDM.
-
-    Builds d_tilde from the permuted RDM, constructs R_bar_d, solves the
-    GEP and returns lambda_max.
-
-    Returns:
-        The largest eigenvalue, or raises on failure.
-    """
-    d_vec = vectorize_upper(D_perm, pairs)
-    d_tilde = standardize(d_vec)            # may raise ValueError
+    """Compute the maximum eigenvalue for permuted target-RDM pair labels."""
+    d_tilde = standardize(d_vec_perm)       # may raise ValueError
     R_bar_d = compute_R_bar_d(R_list, R_bar, d_tilde)
     _, lambdas = solve_gep(R_bar_d, R_bar, rank=rank, tol=tol)
     return float(lambdas[0])                # lambdas sorted descending
@@ -97,17 +54,21 @@ def permutation_test_redisca(
 ) -> PermutationTestResult:
     """Run a permutation test on ReDisCA components.
 
-    The test permutes condition labels to build a null distribution of
-    ``lambda_max`` (the largest eigenvalue from each permutation). If the
-    requested number of valid permutations cannot be collected within the
-    attempt budget, the test falls back to the valid permutations collected so
-    far and emits a warning instead of failing. For each observed ``lambda_k``
-    the p-value is
+    The test builds a null distribution of ``lambda_max`` (the largest
+    eigenvalue from each permutation). If the requested number of valid
+    permutations cannot be collected within the attempt budget, the test falls
+    back to the valid permutations collected so far and emits a warning instead
+    of failing. For each observed ``lambda_k`` the p-value is
 
         p_k = (1 + #{b : lambda_max^{(b)} >= lambda_k}) / (n_valid + 1)
 
     This is a *max-statistic* approach that controls the family-wise error
     rate across components.
+
+    Each surrogate directly shuffles the upper-triangular target-RDM entries
+    against the fixed ``R_ij`` list. This destroys the correspondence between
+    condition-pair data matrices and target-RDM pair labels, which is the null
+    model described for ReDisCA via the SPoC permutation procedure.
 
     Args:
         R_list: Pre-computed list of R_ij matrices (one per condition pair).
@@ -127,10 +88,11 @@ def permutation_test_redisca(
         PermutationTestResult with p-values, significance mask, and
         optionally the null distribution.
     """
-    _validate_permutation_params(n_perm=n_perm, alpha=alpha, tol=tol)
+    validate_permutation_params(n_perm=n_perm, alpha=alpha, tol=tol)
 
     C = target_rdm.shape[0]
     pairs = pair_indices(C)
+    d_vec = vectorize_upper(target_rdm, pairs)
     rng = np.random.default_rng(random_state)
 
     null_max_lambdas = np.empty(n_perm, dtype=np.float64)
@@ -150,22 +112,22 @@ def permutation_test_redisca(
             )
             break
         attempts += 1
-        perm = rng.permutation(C)
-
-        # Skip the identity permutation
-        if np.array_equal(perm, np.arange(C)):
-            continue
-
-        D_perm = _permute_rdm(target_rdm, perm)
 
         try:
-            lam_max = _max_lambda_for_permuted_rdm(
-                D_perm, R_list, R_bar, pairs, rank, tol
+            perm = rng.permutation(len(d_vec))
+            if np.array_equal(perm, np.arange(len(d_vec))):
+                continue
+
+            d_vec_perm = d_vec[perm]
+            if np.array_equal(d_vec_perm, d_vec):
+                continue
+
+            lam_max = _max_lambda_for_permuted_pairs(
+                d_vec_perm, R_list, R_bar, rank, tol
             )
         except (ValueError, RuntimeError, np.linalg.LinAlgError, SciPyLinAlgError):
             # Degenerate permutation (e.g. constant upper triangle after
-            # permutation) — retry with a new permutation so that we
-            # always collect exactly n_perm valid values.
+            # permutation) - retry with a new permutation.
             continue
 
         null_max_lambdas[collected] = lam_max

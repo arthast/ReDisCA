@@ -12,9 +12,11 @@ from typing import Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from .types import ReDisCAResult
+from .viz import add_panel_colorbar
 
 
 def _require_mne():
@@ -28,7 +30,13 @@ def _require_mne():
         ) from exc
 
 
-def _maybe_save_figure(fig, save_path: str | Path | None, dpi: int) -> None:
+def _maybe_save_figure(
+    fig,
+    save_path: str | Path | None,
+    dpi: int,
+    *,
+    pad_inches: float = 0.2,
+) -> None:
     """Save a Matplotlib figure or a list of figures if requested."""
     if save_path is None:
         return
@@ -37,15 +45,30 @@ def _maybe_save_figure(fig, save_path: str | Path | None, dpi: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     if isinstance(fig, list):
+        if len(fig) == 1:
+            fig[0].savefig(
+                path,
+                dpi=dpi,
+                bbox_inches="tight",
+                pad_inches=pad_inches,
+            )
+            print(f"Saved {path}")
+            return
+
         stem = path.stem
         suffix = path.suffix or ".png"
         for i, item in enumerate(fig):
             item_path = path.with_name(f"{stem}_{i}{suffix}")
-            item.savefig(item_path, dpi=dpi, bbox_inches="tight")
+            item.savefig(
+                item_path,
+                dpi=dpi,
+                bbox_inches="tight",
+                pad_inches=pad_inches,
+            )
             print(f"Saved {item_path}")
         return
 
-    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    fig.savefig(path, dpi=dpi, bbox_inches="tight", pad_inches=pad_inches)
     print(f"Saved {path}")
 
 
@@ -65,6 +88,49 @@ def _normalize_pattern(
     raise ValueError(
         f"normalize must be 'none', 'maxabs' or 'zscore', got '{normalize}'"
     )
+
+
+def plot_pattern_topomap_panel(
+    ax: Axes,
+    result: ReDisCAResult,
+    info,
+    *,
+    component: int,
+    title: str,
+    ch_type: str | None = None,
+    normalize: str = "maxabs",
+    cmap: str = "RdBu_r",
+    sensors: bool = True,
+    contours: int = 6,
+    vlim: tuple[float | None, float | None] | None = (-1.0, 1.0),
+    colorbar: bool = True,
+    colorbar_label: str = "Weight",
+):
+    """Plot one ReDisCA spatial pattern topomap into an existing axes."""
+    mne = _require_mne()
+    pattern = _normalize_pattern(result.A[:, component], normalize)
+    image, _ = mne.viz.plot_topomap(
+        pattern,
+        info,
+        ch_type=ch_type,
+        axes=ax,
+        show=False,
+        cmap=cmap,
+        sensors=sensors,
+        contours=contours,
+        vlim=vlim,
+    )
+    ax.set_title(title, fontsize=9, pad=6)
+    if colorbar:
+        add_panel_colorbar(
+            ax,
+            image,
+            label=colorbar_label,
+            size="3%",
+            pad=0.02,
+            ticks=[-1.0, 0.0, 1.0] if vlim == (-1.0, 1.0) else None,
+        )
+    return image
 
 
 def plot_pattern_topomaps(
@@ -245,6 +311,7 @@ def plot_condition_joint(
 
 
 __all__ = [
+    "plot_pattern_topomap_panel",
     "plot_pattern_topomaps",
     "plot_compare_conditions",
     "plot_condition_joint",
