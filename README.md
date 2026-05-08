@@ -114,65 +114,6 @@ pearson_over_time = scan.component_metric_matrix("pearson_scores")
 p_values_over_time = scan.component_metric_matrix("p_values")
 ```
 
-## Example API
-
-For common MNE pipelines, ReDisCA can run directly on condition-averaged
-`Evoked` objects:
-
-```python
-from redisca import (
-    average_conditions,
-    binary_rdm,
-    fit_redisca_evokeds,
-    load_evoked_bundle,
-    sliding_window_fit_redisca_evokeds,
-)
-
-event_code_groups = {
-    "face": range(1, 41),
-    "car": range(41, 81),
-    "scrambled_face": range(101, 141),
-    "scrambled_car": range(141, 181),
-}
-condition_order = ["face", "car", "scrambled_face", "scrambled_car"]
-
-evokeds = average_conditions(
-    epochs,
-    event_code_groups,
-    condition_order=condition_order,
-)
-
-# If preprocessing has already produced a compact ReDisCA bundle, load it in
-# one line instead:
-evokeds = load_evoked_bundle("ready.npz", "info.fif")
-
-condition_order = list(evokeds)
-target_rdm = binary_rdm(condition_order, {"face", "car"})
-
-analysis = fit_redisca_evokeds(
-    evokeds,
-    target_rdm,
-    condition_order=condition_order,
-    tmin=0.150,
-    tmax=0.250,
-    permutation_test=True,
-    n_perm=1000,
-)
-
-scan = sliding_window_fit_redisca_evokeds(
-    evokeds,
-    target_rdm,
-    condition_order=condition_order,
-    window_ms=150.0,
-    step_ms=25.0,
-    permutation_test=True,
-    n_perm=1000,
-)
-
-print(analysis.pearson_scores)
-print(scan.component_metric_matrix("p_values"))
-```
-
 ## Visualization
 
 Lightweight Matplotlib plots live in `redisca.viz`:
