@@ -24,7 +24,8 @@ from scipy.signal import butter, sosfiltfilt
 
 ROOT = Path(__file__).resolve().parents[1]
 
-from redisca import fit_redisca
+from redisca import compute_pearson_scores, fit_redisca
+from redisca.core import vectorize_upper
 from redisca.summary import best_component_by_pearson
 
 
@@ -60,35 +61,21 @@ METRICS = [
 ]
 
 
-def upper_triangle_vector(matrix: np.ndarray) -> np.ndarray:
-    """Return the upper-triangular off-diagonal entries of a square matrix."""
-    return np.asarray(matrix[np.triu_indices_from(matrix, k=1)], dtype=float)
-
-
 def normalize_rdm(rdm: np.ndarray) -> np.ndarray:
     """Make an RDM non-negative with zero diagonal and max distance equal to 1."""
     rdm = np.asarray(rdm, dtype=float).copy()
     np.fill_diagonal(rdm, 0.0)
-    off_diag = upper_triangle_vector(rdm)
+    off_diag = vectorize_upper(rdm)
     min_value = float(off_diag.min())
     if min_value < 0.0:
         rows, cols = np.triu_indices_from(rdm, k=1)
         rdm[rows, cols] -= min_value
         rdm[cols, rows] -= min_value
-    max_value = float(upper_triangle_vector(rdm).max())
+    max_value = float(vectorize_upper(rdm).max())
     if max_value > 0.0:
         rdm /= max_value
     np.fill_diagonal(rdm, 0.0)
     return rdm
-
-
-def rdm_pearson(lhs: np.ndarray, rhs: np.ndarray) -> float:
-    """Pearson correlation between the upper triangles of two RDMs."""
-    lhs_vec = upper_triangle_vector(lhs)
-    rhs_vec = upper_triangle_vector(rhs)
-    if min(float(lhs_vec.std()), float(rhs_vec.std())) < 1e-12:
-        return 0.0
-    return float(np.corrcoef(lhs_vec, rhs_vec)[0, 1])
 
 
 def abs_corr(lhs: np.ndarray, rhs: np.ndarray) -> float:
@@ -148,7 +135,7 @@ def make_noisy_target_rdm(
     noise = rng.standard_normal(true_rdm.shape)
     noise = 0.5 * (noise + noise.T)
     np.fill_diagonal(noise, 0.0)
-    scale = noise_scale * (float(upper_triangle_vector(true_rdm).std()) + 1e-12)
+    scale = noise_scale * (float(vectorize_upper(true_rdm).std()) + 1e-12)
     return normalize_rdm(true_rdm + scale * noise)
 
 
@@ -301,7 +288,9 @@ def evaluate_source(
         "p_value": p_value,
         "significant": significant,
         "target_rdm_corr": float(result.pearson_scores[component]),
-        "true_rdm_corr": rdm_pearson(recovered_rdm, true_rdm),
+        "true_rdm_corr": float(
+            compute_pearson_scores(true_rdm, recovered_rdm[np.newaxis, :, :])[0]
+        ),
         "pattern_corr": abs_corr(result.A[:, component], true_topography),
         "filter_corr": abs_corr(result.W[:, component], true_topography),
     }
