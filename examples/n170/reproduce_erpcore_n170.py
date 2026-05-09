@@ -108,6 +108,7 @@ plot_sliding_window_metric(
     metric="p_values",
     max_components=6,
     threshold=ALPHA,
+    mark_threshold=False,
     title="Meaningful vs meaningless: permutation p-values",
     save_path=output_path("meaningful_vs_meaningless", "p_values.png"),
 )

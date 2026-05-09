@@ -501,6 +501,7 @@ def plot_sliding_window_metric(
     vmax: float | None = None,
     title: str | None = None,
     colorbar_label: str | None = None,
+    mark_threshold: bool = True,
     ax: Axes | None = None,
     save_path: str | Path | None = None,
     dpi: int = 150,
@@ -552,7 +553,7 @@ def plot_sliding_window_metric(
     ax.set_title(title or metric)
     fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04, label=colorbar_label)
 
-    if threshold is not None:
+    if threshold is not None and mark_threshold:
         significant_rows, significant_cols = np.where(
             np.isfinite(matrix) & (matrix < threshold)
         )
