@@ -37,7 +37,6 @@ READY_NPZ = N170_ROOT / "prepared" / "erpcore_n170_sub001_ready.npz"
 READY_INFO_FIF = N170_ROOT / "prepared" / "erpcore_n170_sub001_info.fif"
 OUTPUT_ROOT = N170_ROOT / "outputs"
 FIGURE_ROOT = OUTPUT_ROOT / "figures"
-SAVE_FIGURES = True
 
 RANK: int | str | None = "auto"
 PERMUTATION_TEST = True
@@ -50,11 +49,10 @@ RANDOM_STATE = 0
 
 def output_path(*parts: str) -> Path | None:
     """Return a save path for plot helpers, or None when saving is disabled."""
-    return FIGURE_ROOT.joinpath(*parts) if SAVE_FIGURES else None
+    return FIGURE_ROOT.joinpath(*parts)
 
 
-if SAVE_FIGURES:
-    FIGURE_ROOT.mkdir(parents=True, exist_ok=True)
+FIGURE_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================
@@ -135,27 +133,26 @@ sequence_start = max(0, meaningful_window_idx - 1)
 sequence_stop = min(meaningful_scan.n_windows, sequence_start + 3)
 sequence_start = max(0, sequence_stop - 3)
 meaningful_sequence_indices = list(range(sequence_start, sequence_stop))
-if SAVE_FIGURES:
-    save_scan_overview_figure(
-        meaningful_scan,
-        FIGURE_ROOT / "meaningful_vs_meaningless" / "scan_overview.png",
-        info=info,
-        condition_names=condition_order,
-        title="Meaningful vs meaningless: sliding-window summary",
-        alpha=ALPHA,
-        selected_window_index=meaningful_window_idx,
-    )
-    save_window_sequence_figure(
-        meaningful_scan,
-        FIGURE_ROOT / "meaningful_vs_meaningless" / "window_sequence.png",
-        info=info,
-        times=times,
-        condition_names=condition_order,
-        title="Meaningful vs meaningless: windows around 400 ms",
-        window_indices=meaningful_sequence_indices,
-        X_full=X,
-        alpha=ALPHA,
-    )
+save_scan_overview_figure(
+    meaningful_scan,
+    FIGURE_ROOT / "meaningful_vs_meaningless" / "scan_overview.png",
+    info=info,
+    condition_names=condition_order,
+    title="Meaningful vs meaningless: sliding-window summary",
+    alpha=ALPHA,
+    selected_window_index=meaningful_window_idx,
+)
+save_window_sequence_figure(
+    meaningful_scan,
+    FIGURE_ROOT / "meaningful_vs_meaningless" / "window_sequence.png",
+    info=info,
+    times=times,
+    condition_names=condition_order,
+    title="Meaningful vs meaningless: windows around 400 ms",
+    window_indices=meaningful_sequence_indices,
+    X_full=X,
+    alpha=ALPHA,
+)
 
 
 # =============================================================================
@@ -204,19 +201,18 @@ plot_component_timeseries(
 )
 
 category_highlight_ms = (float(1000.0 * face.times[0]), float(1000.0 * face.times[-1]))
-if SAVE_FIGURES:
-    save_component_summary_figure(
-        face.result,
-        FIGURE_ROOT / "face_specific" / "component_summary.png",
-        info=info,
-        times=times,
-        condition_names=condition_order,
-        title="Face-specific N170: component summary",
-        component_indices=[face_component],
-        X_full=X,
-        highlight_interval=category_highlight_ms,
-        alpha=ALPHA,
-    )
+save_component_summary_figure(
+    face.result,
+    FIGURE_ROOT / "face_specific" / "component_summary.png",
+    info=info,
+    times=times,
+    condition_names=condition_order,
+    title="Face-specific N170: component summary",
+    component_indices=[face_component],
+    X_full=X,
+    highlight_interval=category_highlight_ms,
+    alpha=ALPHA,
+)
 
 
 # =============================================================================
@@ -255,32 +251,28 @@ plot_top_component_rdms(
     save_path=output_path("car_specific", "rdms.png"),
 )
 
-if SAVE_FIGURES:
-    car_components = [car_component]
-    if car.n_components > 1:
-        if car.p_values is not None and np.isfinite(car.p_values).any():
-            car_components = [
-                int(idx)
-                for idx in np.argsort(car.p_values)[: min(2, car.n_components)]
-            ]
-        else:
-            car_components = list(range(min(2, car.n_components)))
+car_components = [car_component]
+if car.n_components > 1:
+    if car.p_values is not None and np.isfinite(car.p_values).any():
+        car_components = [
+            int(idx)
+            for idx in np.argsort(car.p_values)[: min(2, car.n_components)]
+        ]
+    else:
+        car_components = list(range(min(2, car.n_components)))
 
-    save_component_summary_figure(
-        car.result,
-        FIGURE_ROOT / "car_specific" / "component_summary.png",
-        info=info,
-        times=times,
-        condition_names=condition_order,
-        title="Car-specific N170: component summary",
-        component_indices=car_components,
-        X_full=X,
-        highlight_interval=category_highlight_ms,
-        alpha=ALPHA,
-    )
+save_component_summary_figure(
+    car.result,
+    FIGURE_ROOT / "car_specific" / "component_summary.png",
+    info=info,
+    times=times,
+    condition_names=condition_order,
+    title="Car-specific N170: component summary",
+    component_indices=car_components,
+    X_full=X,
+    highlight_interval=category_highlight_ms,
+    alpha=ALPHA,
+)
 
-if SAVE_FIGURES:
-    print(f"Saved figures to {FIGURE_ROOT}")
-    plt.close("all")
-else:
-    plt.show()
+print(f"Saved figures to {FIGURE_ROOT}")
+plt.close("all")

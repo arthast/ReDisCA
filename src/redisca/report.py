@@ -188,17 +188,6 @@ def save_scan_overview_figure(
         linewidth=1.0,
         alpha=0.95,
     )
-    sig_rows, sig_cols = np.where(np.isfinite(p_values) & (p_values < alpha))
-    if sig_rows.size:
-        axes[0, 1].scatter(
-            centers[sig_cols],
-            sig_rows,
-            marker="*",
-            s=80,
-            color="white",
-            edgecolors="black",
-            linewidths=0.35,
-        )
     axes[0, 1].set_title("Component p-values over time")
     axes[0, 1].set_xlabel(f"Window center ({time_unit})")
     axes[0, 1].set_ylabel("Component")
@@ -224,17 +213,6 @@ def save_scan_overview_figure(
     axes[1, 1].plot(centers, component_p, color="#4C72B0", linewidth=1.8)
     axes[1, 1].axhline(alpha, color="crimson", linestyle="--", linewidth=1.0)
     axes[1, 1].axvline(selected_center, color="0.25", linestyle=":", linewidth=1.0)
-    finite_sig = np.isfinite(component_p) & (component_p < alpha)
-    if np.any(finite_sig):
-        y_star = np.full(np.count_nonzero(finite_sig), alpha * 0.72)
-        axes[1, 1].scatter(
-            centers[finite_sig],
-            y_star,
-            marker="*",
-            s=90,
-            color="crimson",
-            zorder=3,
-        )
     axes[1, 1].set_ylim(0.0, 1.0)
     axes[1, 1].set_title(f"Component {component} p-value profile")
     axes[1, 1].set_xlabel(f"Window center ({time_unit})")
