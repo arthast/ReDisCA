@@ -30,11 +30,11 @@ def _lambdas_for_weighted_pairs(
     R_list: list[NDArray[np.floating]],
     R_bar: NDArray[np.floating],
     rank: int | str | None,
-    tol: float,
+    rank_rtol: float,
 ) -> NDArray[np.floating]:
     """Compute sorted eigenvalues for one surrogate ReDisCA problem."""
     R_bar_d = compute_R_bar_d(R_list, R_bar, d_tilde)
-    _, lambdas = solve_gep(R_bar_d, R_bar, rank=rank, tol=tol)
+    _, lambdas = solve_gep(R_bar_d, R_bar, rank=rank, rank_rtol=rank_rtol)
     return lambdas
 
 
@@ -45,7 +45,7 @@ def permutation_test_redisca(
     observed_lambdas: NDArray[np.floating],
     n_perm: int = 1000,
     rank: int | str | None = "auto",
-    tol: float = 1e-10,
+    rank_rtol: float = 1e-8,
     alpha: float = 0.05,
     random_state: int | None = None,
     return_null: bool = False,
@@ -68,7 +68,11 @@ def permutation_test_redisca(
     the attempt budget, the test returns results based on the collected
     permutations and emits a warning instead of failing.
     """
-    validate_permutation_params(n_perm=n_perm, alpha=alpha, tol=tol)
+    validate_permutation_params(
+        n_perm=n_perm,
+        alpha=alpha,
+        rank_rtol=rank_rtol,
+    )
 
     pairs = pair_indices(target_rdm.shape[0])
     d_vec = vectorize_upper(target_rdm, pairs)
@@ -109,7 +113,7 @@ def permutation_test_redisca(
                 R_list,
                 R_bar,
                 rank,
-                tol,
+                rank_rtol,
             )
         except (ValueError, RuntimeError, np.linalg.LinAlgError, SciPyLinAlgError):
             # Degenerate permutation, for example a nearly constant permuted

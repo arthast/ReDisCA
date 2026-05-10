@@ -13,6 +13,7 @@ from numpy.typing import NDArray
 from .core import compute_component_timeseries
 from .export import export_result
 from .types import ReDisCAResult, SlidingWindowReDisCAResult
+from .validation import validate_component_index, validate_component_indices
 from .viz import (
     plot_component_timeseries_panel,
     plot_component_lambdas,
@@ -113,14 +114,18 @@ def _component_stats_title(
     *,
     alpha: float,
 ) -> str:
+    component = validate_component_index(
+        component,
+        result.n_components,
+        name="component",
+    )
     lines = [
         f"comp {component}",
         f"lambda={result.lambdas[component]:.3f}, r={result.pearson_scores[component]:.3f}",
     ]
     if result.p_values is not None:
         p_value = result.p_values[component]
-        marker = "*" if np.isfinite(p_value) and p_value < alpha else "n.s."
-        lines.append(f"p={p_value:.3g} {marker}")
+        lines.append(f"p={p_value:.3g}")
     return "\n".join(lines)
 
 
@@ -139,8 +144,23 @@ def save_scan_overview_figure(
     time_unit: str = "ms",
 ) -> None:
     """Save target RDM, p-value map, selected topomap, and p-value trace."""
+    max_available_components = max(result.n_components for result in scan.results)
+    component = validate_component_index(
+        component,
+        max_available_components,
+        name="component",
+    )
+    max_components = max(int(max_components), component + 1)
+
     if selected_window_index is None:
         selected_window_index = best_window_index(scan, component=component)
+    selected_window_index = int(selected_window_index)
+    if selected_window_index < 0 or selected_window_index >= scan.n_windows:
+        raise ValueError(
+            "selected_window_index must satisfy "
+            f"0 <= selected_window_index < n_windows={scan.n_windows}, "
+            f"got {selected_window_index}"
+        )
 
     display_names = _short_condition_names(condition_names)
     centers = center_scale * scan.window_centers
@@ -201,6 +221,11 @@ def save_scan_overview_figure(
     )
 
     selected_result = scan.results[selected_window_index]
+    validate_component_index(
+        component,
+        selected_result.n_components,
+        name="component",
+    )
     plot_pattern_topomap_panel(
         axes[1, 0],
         selected_result,
@@ -210,14 +235,51 @@ def save_scan_overview_figure(
     )
 
     component_p = p_values[component]
-    axes[1, 1].plot(centers, component_p, color="#4C72B0", linewidth=1.8)
-    axes[1, 1].axhline(alpha, color="crimson", linestyle="--", linewidth=1.0)
+    component_lambdas = scan.component_metric_matrix(
+        "lambdas",
+        max_components=max_components,
+    )[component]
+    p_line = axes[1, 1].plot(
+        centers,
+        component_p,
+        color="#4C72B0",
+        linewidth=1.8,
+        label="p-value profile",
+    )[0]
+    alpha_line = axes[1, 1].axhline(
+        alpha,
+        color="crimson",
+        linestyle="--",
+        linewidth=1.0,
+        label=f"{alpha:g} level",
+    )
     axes[1, 1].axvline(selected_center, color="0.25", linestyle=":", linewidth=1.0)
     axes[1, 1].set_ylim(0.0, 1.0)
-    axes[1, 1].set_title(f"Component {component} p-value profile")
+    axes[1, 1].set_title(f"Component {component} profile")
     axes[1, 1].set_xlabel(f"Window center ({time_unit})")
     axes[1, 1].set_ylabel("p-value", labelpad=0)
     axes[1, 1].grid(True, linewidth=0.3, alpha=0.35)
+
+    lambda_ax = axes[1, 1].twinx()
+    lambda_line = lambda_ax.plot(
+        centers,
+        component_lambdas,
+        color="#DD8452",
+        linewidth=1.7,
+        label="lambda profile",
+    )[0]
+    lambda_ax.set_ylabel("lambda", color="#DD8452", labelpad=0)
+    lambda_ax.tick_params(axis="y", colors="#DD8452")
+    finite_lambdas = component_lambdas[np.isfinite(component_lambdas)]
+    if finite_lambdas.size and float(np.min(finite_lambdas)) >= 0.0:
+        lambda_ax.set_ylim(bottom=0.0)
+
+    axes[1, 1].legend(
+        handles=[p_line, alpha_line, lambda_line],
+        loc="upper right",
+        fontsize=8,
+        frameon=True,
+    )
 
     save_figure(fig, output_path, dpi=170)
 
@@ -241,6 +303,13 @@ def save_window_sequence_figure(
     if len(window_indices) == 0:
         raise ValueError("window_indices must contain at least one window")
 
+    max_available_components = max(result.n_components for result in scan.results)
+    component = validate_component_index(
+        component,
+        max_available_components,
+        name="component",
+    )
+
     display_names = _short_condition_names(condition_names)
     times = np.asarray(times, dtype=np.float64)
     rows = len(window_indices)
@@ -258,10 +327,21 @@ def save_window_sequence_figure(
     fig.suptitle(title, fontsize=14)
 
     for row, window_index in enumerate(window_indices):
-        result = scan.results[int(window_index)]
-        window_start = int(scan.window_starts[int(window_index)])
-        window_stop = int(scan.window_stops[int(window_index)])
-        center = float(time_scale * scan.window_centers[int(window_index)])
+        window_index = int(window_index)
+        if window_index < 0 or window_index >= scan.n_windows:
+            raise ValueError(
+                "window_indices entries must satisfy "
+                f"0 <= window_index < n_windows={scan.n_windows}, got {window_index}"
+            )
+        result = scan.results[window_index]
+        component = validate_component_index(
+            component,
+            result.n_components,
+            name="component",
+        )
+        window_start = int(scan.window_starts[window_index])
+        window_stop = int(scan.window_stops[window_index])
+        center = float(time_scale * scan.window_centers[window_index])
         start = float(time_scale * times[window_start])
         stop = float(time_scale * times[window_stop - 1])
         stats = _component_stats_title(result, component, alpha=alpha)
@@ -327,11 +407,11 @@ def save_component_summary_figure(
     include_target: bool = True,
 ) -> None:
     """Save a fixed-window component summary figure."""
-    component_indices = [
-        int(idx) for idx in component_indices if idx < result.n_components
-    ]
-    if len(component_indices) == 0:
-        raise ValueError("component_indices must contain at least one valid component")
+    component_indices = validate_component_indices(
+        component_indices,
+        result.n_components,
+        name="component_indices",
+    )
 
     display_names = _short_condition_names(condition_names)
     times = np.asarray(times, dtype=np.float64)
@@ -432,6 +512,7 @@ def save_evoked_overview(
 
     first = evokeds[condition_order[0]]
     times_ms = 1000.0 * np.asarray(first.times, dtype=np.float64)
+    plotted_values = []
     for name in condition_order:
         evoked = evokeds[name]
         if picks is not None and hasattr(evoked, "copy"):
@@ -447,10 +528,18 @@ def save_evoked_overview(
         else:
             raise ValueError("combine must be 'gfp' or 'mean'")
 
+        plotted_values.append(y)
         ax.plot(times_ms, y, linewidth=1.6, label=name)
 
     if times_ms[0] <= 0.0 <= times_ms[-1]:
         ax.axvline(0.0, color="black", linewidth=0.8, linestyle=":")
+    if plotted_values:
+        y_all = np.concatenate(plotted_values)
+        y_min = float(np.nanmin(y_all))
+        y_max = float(np.nanmax(y_all))
+        y_span = y_max - y_min
+        if np.isfinite(y_span) and y_span > 0.0:
+            ax.set_ylim(y_min - 0.08 * y_span, y_max + 0.16 * y_span)
     ax.set_title(title)
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel(ylabel)
@@ -501,18 +590,7 @@ def plot_window_metric_heatmap(
     if threshold is not None and mark_threshold:
         finite_mask = np.isfinite(matrix)
         threshold_mask = finite_mask & (matrix < threshold)
-        if np.any(threshold_mask):
-            rows, cols = np.where(threshold_mask)
-            ax.scatter(
-                centers_ms[cols],
-                rows + 1,
-                marker="*",
-                s=90,
-                color="white",
-                edgecolors="black",
-                linewidths=0.4,
-            )
-        else:
+        if not np.any(threshold_mask):
             label = threshold_label or f"No cells below {threshold:g}"
             ax.text(
                 0.99,

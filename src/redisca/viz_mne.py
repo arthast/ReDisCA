@@ -16,6 +16,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from .types import ReDisCAResult
+from .validation import validate_component_index, validate_component_indices
 from .viz import add_panel_colorbar
 
 
@@ -114,6 +115,11 @@ def plot_pattern_topomap_panel(
     colorbar_label: str = "Weight",
 ):
     """Plot one ReDisCA spatial pattern topomap into an existing axes."""
+    component = validate_component_index(
+        component,
+        result.n_components,
+        name="component",
+    )
     mne = _require_mne()
     pattern = _normalize_pattern(result.A[:, component], normalize)
     image, _ = mne.viz.plot_topomap(
@@ -198,8 +204,6 @@ def plot_pattern_topomaps(
     Returns:
         ``(fig, axes)`` where *axes* is a 1-D numpy array.
     """
-    mne = _require_mne()
-
     if not hasattr(info, "ch_names"):
         raise TypeError("info must expose channel names via `info.ch_names`.")
     if len(info.ch_names) != result.n_channels:
@@ -212,10 +216,9 @@ def plot_pattern_topomaps(
     if idxs is None:
         idxs = list(range(min(3, r)))
     else:
-        idxs = [i for i in idxs if i < r]
-        if len(idxs) == 0:
-            raise ValueError("No valid component indices in idxs.")
+        idxs = validate_component_indices(idxs, r, name="idxs")
 
+    mne = _require_mne()
     patterns = [_normalize_pattern(result.A[:, idx], normalize) for idx in idxs]
 
     if vlim == "joint":
@@ -300,6 +303,7 @@ def plot_compare_conditions(
     title: str | None = None,
     show_sensors=None,
     time_unit: str = "s",
+    y_margin: float = 0.12,
     save_path: str | Path | None = None,
     dpi: int = 150,
     **kwargs,
@@ -320,6 +324,22 @@ def plot_compare_conditions(
         show=False,
         **kwargs,
     )
+    figures = fig if isinstance(fig, list) else [fig]
+    if y_margin > 0.0:
+        for item in figures:
+            for ax in getattr(item, "axes", []):
+                y_min, y_max = ax.get_ylim()
+                y_span = y_max - y_min
+                if not np.isfinite(y_span) or y_span <= 0.0:
+                    continue
+
+                upper_pad = float(y_margin) * y_span
+                lower_pad = 0.35 * upper_pad
+                new_min = y_min - lower_pad
+                if y_min >= 0.0:
+                    new_min = max(0.0, new_min)
+                ax.set_ylim(new_min, y_max + upper_pad)
+
     _maybe_save_figure(fig, save_path, dpi)
     return fig
 

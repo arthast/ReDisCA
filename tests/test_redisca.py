@@ -339,6 +339,30 @@ class TestSolveGep:
             assert_allclose(norm_sq, 1.0, atol=1e-6,
                           err_msg=f"Filter {i} not normalized")
 
+    def test_rank_selection_is_scale_invariant_for_small_signal_units(self, simple_data):
+        """Relative rank threshold should preserve rank for tiny EEG-like data."""
+        X, target_rdm = simple_data
+        X_scaled = 1e-8 * X
+
+        result = fit_redisca(X, target_rdm, rank=None)
+        scaled_result = fit_redisca(X_scaled, target_rdm, rank=None)
+
+        assert scaled_result.n_components == result.n_components
+        assert_allclose(
+            scaled_result.lambdas,
+            result.lambdas,
+            rtol=1e-6,
+            atol=1e-8,
+        )
+
+    @pytest.mark.parametrize("rank_rtol", [0.0, -1.0, 1.0, np.inf, np.nan])
+    def test_invalid_rank_rtol_raises(self, simple_data, rank_rtol):
+        """rank_rtol must be a finite relative threshold in (0, 1)."""
+        X, target_rdm = simple_data
+
+        with pytest.raises(ValueError, match="rank_rtol"):
+            fit_redisca(X, target_rdm, rank_rtol=rank_rtol)
+
 
 # =============================================================================
 # Test: compute_patterns
@@ -1021,6 +1045,8 @@ class TestPermutationTest:
             ({"alpha": 1.0}, "alpha must satisfy 0 < alpha < 1"),
             ({"alpha": -0.1}, "alpha must satisfy 0 < alpha < 1"),
             ({"alpha": 1.5}, "alpha must satisfy 0 < alpha < 1"),
+            ({"rank_rtol": 0.0}, "rank_rtol must satisfy"),
+            ({"rank_rtol": 1.0}, "rank_rtol must satisfy"),
         ],
     )
     def test_invalid_fit_permutation_params_raise(self, small_data, kwargs, match):
@@ -1045,6 +1071,8 @@ class TestPermutationTest:
             ({"alpha": 1.0}, "alpha must satisfy 0 < alpha < 1"),
             ({"alpha": -0.1}, "alpha must satisfy 0 < alpha < 1"),
             ({"alpha": 1.5}, "alpha must satisfy 0 < alpha < 1"),
+            ({"rank_rtol": 0.0}, "rank_rtol must satisfy"),
+            ({"rank_rtol": 1.0}, "rank_rtol must satisfy"),
         ],
     )
     def test_invalid_standalone_permutation_params_raise(self, small_data, kwargs, match):
@@ -1297,6 +1325,10 @@ class TestVisualization:
         with pytest.raises(ValueError, match="condition_names"):
             plot_component_timeseries(result_no_pvalues, condition_names=["a", "b"])
 
+    def test_component_timeseries_rejects_negative_idxs(self, result_no_pvalues):
+        with pytest.raises(ValueError, match=r"idxs\[0\]"):
+            plot_component_timeseries(result_no_pvalues, idxs=[-1])
+
     # -- 2.1) plot_patterns ----------------------------------------------
 
     def test_patterns_default(self, result_no_pvalues):
@@ -1315,6 +1347,10 @@ class TestVisualization:
         fig, axes = plot_patterns(result_no_pvalues, idxs=[0])
         assert len(axes) == 1
         plt.close(fig)
+
+    def test_patterns_rejects_negative_idxs(self, result_no_pvalues):
+        with pytest.raises(ValueError, match=r"idxs\[0\]"):
+            plot_patterns(result_no_pvalues, idxs=[-1])
 
     def test_patterns_bad_mode(self, result_no_pvalues):
         with pytest.raises(ValueError, match="mode"):
@@ -1454,6 +1490,13 @@ class TestMNEVisualization:
         assert calls[0]["kwargs"]["extrapolate"] == "head"
         assert calls[0]["kwargs"]["sphere"] == (0.0, 0.0, 0.0, 0.095)
         plt.close(fig)
+
+    def test_pattern_topomaps_rejects_negative_idxs_before_mne(self, result_no_pvalues):
+        info = types.SimpleNamespace(
+            ch_names=[f"Ch{i}" for i in range(result_no_pvalues.n_channels)]
+        )
+        with pytest.raises(ValueError, match=r"idxs\[0\]"):
+            plot_pattern_topomaps(result_no_pvalues, info, idxs=[-1])
 
     def test_pattern_topomaps_info_channel_mismatch_raises(self, result_no_pvalues, monkeypatch):
         fake_mne = types.SimpleNamespace(

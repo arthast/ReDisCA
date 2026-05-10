@@ -9,7 +9,11 @@ from numpy.typing import NDArray
 
 from .fit import fit_redisca
 from .types import ReDisCAResult, SlidingWindowReDisCAResult
-from .validation import validate_inputs, validate_positive_int
+from .validation import (
+    validate_component_index,
+    validate_inputs,
+    validate_positive_int,
+)
 
 
 def ms_to_samples(duration_ms: float, sfreq: float) -> int:
@@ -31,7 +35,7 @@ def sliding_window_fit_redisca(
     stop: int | None = None,
     times: NDArray[np.floating] | None = None,
     rank: int | str | None = "auto",
-    tol: float = 1e-10,
+    rank_rtol: float = 1e-8,
     permutation_test: bool = False,
     n_perm: int = 1000,
     alpha: float = 0.05,
@@ -50,7 +54,7 @@ def sliding_window_fit_redisca(
         times: Optional time axis of shape ``(T,)``. When given, window centers
             are returned in these units instead of raw sample indices.
         rank: Forwarded to :func:`fit_redisca`.
-        tol: Forwarded to :func:`fit_redisca`.
+        rank_rtol: Forwarded to :func:`fit_redisca`.
         permutation_test: Forwarded to :func:`fit_redisca`.
         n_perm: Forwarded to :func:`fit_redisca`.
         alpha: Forwarded to :func:`fit_redisca`.
@@ -115,7 +119,7 @@ def sliding_window_fit_redisca(
                 X_window,
                 target_rdm,
                 rank=rank,
-                tol=tol,
+                rank_rtol=rank_rtol,
                 permutation_test=permutation_test,
                 n_perm=n_perm,
                 alpha=alpha,
@@ -148,7 +152,7 @@ def sliding_window_fit_redisca_ms(
     stop: int | None = None,
     times: NDArray[np.floating] | None = None,
     rank: int | str | None = "auto",
-    tol: float = 1e-10,
+    rank_rtol: float = 1e-8,
     permutation_test: bool = False,
     n_perm: int = 1000,
     alpha: float = 0.05,
@@ -164,7 +168,7 @@ def sliding_window_fit_redisca_ms(
         stop=stop,
         times=times,
         rank=rank,
-        tol=tol,
+        rank_rtol=rank_rtol,
         permutation_test=permutation_test,
         n_perm=n_perm,
         alpha=alpha,
@@ -183,19 +187,26 @@ def best_window_index(
     1. Lowest finite p-value for the requested component.
     2. Highest Pearson score if p-values are unavailable.
     """
-    if isinstance(component, (bool, np.bool_)) or not isinstance(component, (int, np.integer)):
-        raise TypeError(f"component must be a non-negative integer, got {type(component).__name__}")
-    component = int(component)
-    if component < 0:
-        raise ValueError(f"component must be >= 0, got {component}")
+    max_components = max(result.n_components for result in scan.results)
+    component = validate_component_index(
+        component,
+        max_components,
+        name="component",
+    )
 
     p_values = scan.component_metric_matrix("p_values", max_components=component + 1)
     row = p_values[component]
     if np.isfinite(row).any():
         return int(np.nanargmin(row))
 
-    pearson = scan.component_metric_matrix("pearson_scores", max_components=component + 1)
-    return int(np.nanargmax(pearson[component]))
+    pearson = scan.component_metric_matrix(
+        "pearson_scores",
+        max_components=component + 1,
+    )
+    row = pearson[component]
+    if not np.isfinite(row).any():
+        raise ValueError(f"No finite scores were found for component={component}.")
+    return int(np.nanargmax(row))
 
 
 __all__ = [

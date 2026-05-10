@@ -6,7 +6,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .types import ReDisCAResult
-from .validation import validate_inputs, validate_permutation_params
+from .validation import (
+    validate_inputs,
+    validate_permutation_params,
+    validate_rank_rtol,
+)
 from .core import (
     pair_indices,
     compute_all_R_ij,
@@ -28,7 +32,7 @@ def fit_redisca(
         X: Union[NDArray[np.floating], List[NDArray[np.floating]]],
         target_rdm: NDArray[np.floating],
         rank: int | str | None = "auto",
-        tol: float = 1e-10,
+        rank_rtol: float = 1e-8,
         permutation_test: bool = False,
         n_perm: int = 1000,
         alpha: float = 0.05,
@@ -52,14 +56,15 @@ def fit_redisca(
         target_rdm: Theoretical RDM of shape (C, C).
         rank: Number of principal components to retain.
             - "auto": automatically use the effective numerical rank, i.e. the
-              number of eigenvalues of R_bar greater than tol
+              number of eigenvalues of R_bar greater than
+              ``rank_rtol * max(eigvals(R_bar))``
             - int: use specified rank
             - None: do not impose a user-specified rank cap; keep all numerically
-              valid directions, i.e. all eigenvalues of R_bar greater than tol.
-              This may return fewer than N components if R_bar is rank-deficient
-              or numerically singular.
-        tol: Threshold for treating eigenvalues of R_bar as numerically positive.
-             Used to determine the effective numerical rank.
+              valid directions. This may return fewer than N components if
+              R_bar is rank-deficient or numerically singular.
+        rank_rtol: Relative threshold for selecting numerically positive
+            eigenvalues of R_bar. The actual threshold is
+            ``rank_rtol * max(eigvals(R_bar))``.
         permutation_test: If True, run a permutation test to assess the
             significance of each component. The test reshuffles upper-triangular
             target-RDM entries against fixed condition-pair data matrices and
@@ -80,11 +85,14 @@ def fit_redisca(
         RuntimeError: If the generalized eigenvalue problem becomes
             numerically unstable or filters cannot be properly normalized.
     """
-    if not np.isfinite(tol) or float(tol) <= 0.0:
-        raise ValueError(f"tol must be a positive finite number, got {tol}")
+    rank_rtol = validate_rank_rtol(rank_rtol)
 
     if permutation_test:
-        validate_permutation_params(n_perm=n_perm, alpha=alpha, tol=tol)
+        validate_permutation_params(
+            n_perm=n_perm,
+            alpha=alpha,
+            rank_rtol=rank_rtol,
+        )
 
     validated = validate_inputs(X, target_rdm)
     X = validated.X
@@ -104,7 +112,7 @@ def fit_redisca(
     R_bar_d = compute_R_bar_d(R_list, R_bar, d_tilde)
     R_bar_d = symmetrize_matrix(R_bar_d, name="R_bar_d")
 
-    W, lambdas = solve_gep(R_bar_d, R_bar, rank=rank, tol=tol)
+    W, lambdas = solve_gep(R_bar_d, R_bar, rank=rank, rank_rtol=rank_rtol)
     A = compute_patterns(W, R_bar)
     component_timeseries = compute_component_timeseries(W, X)
     component_rdms = compute_component_rdms(W, R_list, pairs, C)
@@ -123,7 +131,7 @@ def fit_redisca(
             observed_lambdas=lambdas,
             n_perm=n_perm,
             rank=rank,
-            tol=tol,
+            rank_rtol=rank_rtol,
             alpha=alpha,
             random_state=random_state,
         )

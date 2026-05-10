@@ -20,10 +20,48 @@ def validate_positive_int(value: int, *, name: str) -> int:
     return value
 
 
+def validate_component_index(
+        component: int,
+        n_components: int,
+        *,
+        name: str = "component",
+) -> int:
+    """Validate a single component index."""
+    if isinstance(component, (bool, np.bool_)) or not isinstance(
+        component,
+        (int, np.integer),
+    ):
+        raise TypeError(f"{name} must be an integer, got {type(component).__name__}")
+
+    component = int(component)
+    if component < 0 or component >= int(n_components):
+        raise ValueError(
+            f"{name} must satisfy 0 <= {name} < n_components={int(n_components)}, "
+            f"got {component}"
+        )
+    return component
+
+
+def validate_component_indices(
+        components,
+        n_components: int,
+        *,
+        name: str = "components",
+) -> list[int]:
+    """Validate a sequence of component indices."""
+    validated = [
+        validate_component_index(component, n_components, name=f"{name}[{idx}]")
+        for idx, component in enumerate(components)
+    ]
+    if len(validated) == 0:
+        raise ValueError(f"{name} must contain at least one component index")
+    return validated
+
+
 def validate_permutation_params(
         n_perm: int,
         alpha: float,
-        tol: float,
+        rank_rtol: float,
 ) -> None:
     """Validate statistical inference parameters."""
     if isinstance(n_perm, (bool, np.bool_)) or not isinstance(n_perm, (int, np.integer)):
@@ -37,8 +75,17 @@ def validate_permutation_params(
     if not np.isfinite(alpha) or not (0.0 < float(alpha) < 1.0):
         raise ValueError(f"alpha must satisfy 0 < alpha < 1, got {alpha}")
 
-    if not np.isfinite(tol) or float(tol) <= 0.0:
-        raise ValueError(f"tol must be a positive finite number, got {tol}")
+    validate_rank_rtol(rank_rtol)
+
+
+def validate_rank_rtol(rank_rtol: float) -> float:
+    """Validate the relative eigenvalue threshold used for rank selection."""
+    if not np.isfinite(rank_rtol) or not (0.0 < float(rank_rtol) < 1.0):
+        raise ValueError(
+            "rank_rtol must satisfy 0 < rank_rtol < 1, "
+            f"got {rank_rtol}"
+        )
+    return float(rank_rtol)
 
 
 def validate_rank(
@@ -79,7 +126,7 @@ def resolve_rank(
         rank: int | str | None,
         available_rank: int,
         N: int,
-        tol: float,
+        eig_tol: float,
 ) -> int:
     """Resolve a validated rank request against the numerical data rank."""
     rank = validate_rank(rank, N)
@@ -97,7 +144,7 @@ def resolve_rank(
         if available_rank < N:
             warnings.warn(
                 f"rank=None means no explicit user rank cap, not forced full rank. "
-                f"R_bar has only {available_rank} eigenvalues > tol={tol}, "
+                f"R_bar has only {available_rank} eigenvalues > eig_tol={eig_tol:.3e}, "
                 f"so {available_rank} components will be returned instead of N={N}.",
                 RuntimeWarning,
                 stacklevel=2
@@ -107,7 +154,7 @@ def resolve_rank(
     if rank > available_rank:
         warnings.warn(
             f"Requested rank={rank}, but only {available_rank} eigenvalues of "
-            f"R_bar exceed tol={tol}. Using rank={available_rank}.",
+            f"R_bar exceed eig_tol={eig_tol:.3e}. Using rank={available_rank}.",
             RuntimeWarning,
             stacklevel=2,
         )

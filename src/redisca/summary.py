@@ -6,6 +6,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .types import ReDisCAResult, SlidingWindowReDisCAResult
+from .validation import validate_component_index
 from .windowed import best_window_index
 
 
@@ -16,14 +17,11 @@ def summarize_component(
     alpha: float = 0.05,
 ) -> dict[str, float | int | bool | None]:
     """Summarize one component with scalar values."""
-    if component >= result.n_components:
-        return {
-            "component": int(component),
-            "lambda": None,
-            "pearson_score": None,
-            "p_value": None,
-            "significant": False,
-        }
+    component = validate_component_index(
+        component,
+        result.n_components,
+        name="component",
+    )
 
     p_value = None if result.p_values is None else float(result.p_values[component])
     return {
@@ -57,6 +55,11 @@ def best_window_by_pearson(
     component: int = 0,
 ) -> int:
     """Return the window with the highest finite Pearson score."""
+    component = validate_component_index(
+        component,
+        max(result.n_components for result in scan.results),
+        name="component",
+    )
     pearson = scan.component_metric_matrix(
         "pearson_scores",
         max_components=component + 1,
@@ -85,6 +88,20 @@ def summarize_window(
     time_unit: str = "",
 ) -> dict[str, float | int | bool | None]:
     """Summarize timing and component metrics for one sliding window."""
+    if isinstance(window_index, (bool, np.bool_)) or not isinstance(
+        window_index,
+        (int, np.integer),
+    ):
+        raise TypeError(
+            f"window_index must be an integer, got {type(window_index).__name__}"
+        )
+    window_index = int(window_index)
+    if window_index < 0 or window_index >= scan.n_windows:
+        raise ValueError(
+            "window_index must satisfy "
+            f"0 <= window_index < n_windows={scan.n_windows}, got {window_index}"
+        )
+
     if times is None:
         times = scan.sample_times
     if times is not None:
@@ -124,6 +141,11 @@ def significant_window_segments(
     time_unit: str = "",
 ) -> list[dict[str, float | int]]:
     """Find contiguous runs of windows where one component has ``p < alpha``."""
+    component = validate_component_index(
+        component,
+        max(result.n_components for result in scan.results),
+        name="component",
+    )
     if times is None:
         times = scan.sample_times
     if times is not None:
@@ -240,6 +262,11 @@ def summarize_sliding_window_scan(
     reference_label: str | None = None,
 ) -> dict[str, object]:
     """Summarize a sliding-window scan."""
+    component = validate_component_index(
+        component,
+        max(result.n_components for result in scan.results),
+        name="component",
+    )
     best_p_idx = best_window_index(scan, component=component)
     best_r_idx = best_window_by_pearson(scan, component=component)
     segments = significant_window_segments(

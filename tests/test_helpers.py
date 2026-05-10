@@ -27,7 +27,11 @@ from redisca.report import (
     save_evoked_overview,
     save_sliding_window_report,
 )
-from redisca.summary import summarize_fixed_window_result, summarize_sliding_window_scan
+from redisca.summary import (
+    summarize_component,
+    summarize_fixed_window_result,
+    summarize_sliding_window_scan,
+)
 from redisca.types import ReDisCAResult, SlidingWindowReDisCAResult
 from redisca.viz import plot_sliding_window_metric
 from redisca.windowed import sliding_window_fit_redisca_ms
@@ -337,6 +341,8 @@ class TestWindowHelpers:
 
     def test_best_window_index_prefers_lowest_p_value(self):
         class DummyScan:
+            results = [types.SimpleNamespace(n_components=1)]
+
             def component_metric_matrix(self, name, max_components):
                 if name == "p_values":
                     return np.array([[0.4, 0.01, 0.2]])
@@ -345,6 +351,21 @@ class TestWindowHelpers:
                 raise AssertionError(name)
 
         assert best_window_index(DummyScan()) == 1
+
+    def test_best_window_index_rejects_negative_component(self):
+        scan = SlidingWindowReDisCAResult(
+            results=[make_dummy_result()],
+            window_starts=np.array([0]),
+            window_stops=np.array([10]),
+            window_centers=np.array([0.05]),
+        )
+
+        with pytest.raises(ValueError, match="component"):
+            best_window_index(scan, component=-1)
+
+    def test_summarize_component_rejects_negative_component(self):
+        with pytest.raises(ValueError, match="component"):
+            summarize_component(make_dummy_result(), component=-1)
 
     def test_report_summarizes_sliding_window_scan(self):
         scan = SlidingWindowReDisCAResult(

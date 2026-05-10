@@ -223,7 +223,7 @@ def fit_redisca_evokeds(
     tmin: float | None = None,
     tmax: float | None = None,
     rank: int | str | None = "auto",
-    tol: float = 1e-10,
+    rank_rtol: float = 1e-8,
     permutation_test: bool = False,
     n_perm: int = 1000,
     alpha: float = 0.05,
@@ -239,7 +239,7 @@ def fit_redisca_evokeds(
         tmin: Optional inclusive window start in seconds.
         tmax: Optional inclusive window stop in seconds.
         rank: Forwarded to :func:`redisca.fit_redisca`.
-        tol: Forwarded to :func:`redisca.fit_redisca`.
+        rank_rtol: Forwarded to :func:`redisca.fit_redisca`.
         permutation_test: Forwarded to :func:`redisca.fit_redisca`.
         n_perm: Forwarded to :func:`redisca.fit_redisca`.
         alpha: Forwarded to :func:`redisca.fit_redisca`.
@@ -257,7 +257,7 @@ def fit_redisca_evokeds(
         X[:, :, indices],
         target_rdm,
         rank=rank,
-        tol=tol,
+        rank_rtol=rank_rtol,
         permutation_test=permutation_test,
         n_perm=n_perm,
         alpha=alpha,
@@ -281,7 +281,7 @@ def sliding_window_fit_redisca_evokeds(
     tmin: float | None = None,
     tmax: float | None = None,
     rank: int | str | None = "auto",
-    tol: float = 1e-10,
+    rank_rtol: float = 1e-8,
     permutation_test: bool = False,
     n_perm: int = 1000,
     alpha: float = 0.05,
@@ -311,7 +311,7 @@ def sliding_window_fit_redisca_evokeds(
         stop=int(indices[-1]) + 1,
         times=times,
         rank=rank,
-        tol=tol,
+        rank_rtol=rank_rtol,
         permutation_test=permutation_test,
         n_perm=n_perm,
         alpha=alpha,

@@ -11,7 +11,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.linalg import eigh
 
-from .validation import resolve_rank
+from .validation import resolve_rank, validate_rank_rtol
 
 
 def pair_indices(C: int) -> List[Tuple[int, int]]:
@@ -262,7 +262,7 @@ def solve_gep(
         R_bar_d: NDArray[np.floating],
         R_bar: NDArray[np.floating],
         rank: int | str | None = "auto",
-        tol: float = 1e-10,
+        rank_rtol: float = 1e-8,
 ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
     """Solve generalized eigenvalue problem using principal subspace approach.
 
@@ -278,14 +278,16 @@ def solve_gep(
         R_bar: Mean difference covariance matrix (N, N).
         rank: Number of principal components to retain.
             - "auto": automatically use the effective numerical rank, i.e. the
-              number of eigenvalues of R_bar greater than tol
+              number of eigenvalues of R_bar greater than
+              ``rank_rtol * max(eigvals(R_bar))``
             - int: use specified rank
             - None: do not impose a user-specified rank cap; keep all numerically
-              valid directions, i.e. all eigenvalues of R_bar greater than tol.
-              This may return fewer than N components if R_bar is rank-deficient
-              or numerically singular.
-        tol: Threshold for treating eigenvalues of R_bar as numerically positive.
-             Used to determine the effective numerical rank.
+              valid directions. This may return fewer than N components if
+              R_bar is rank-deficient or numerically singular.
+        rank_rtol: Relative threshold for selecting numerically positive
+             eigenvalues of R_bar. The actual threshold is
+             ``rank_rtol * max(eigvals(R_bar))``, which makes rank selection
+             independent of the absolute scale of the input signal.
 
     Returns:
         Tuple of:
@@ -297,13 +299,22 @@ def solve_gep(
         RuntimeError: If selected directions are numerically inconsistent
             or filters cannot be properly renormalized.
     """
+    rank_rtol = validate_rank_rtol(rank_rtol)
     N = R_bar.shape[0]
 
     # Compute eigendecomposition of R_bar for principal subspace
     eig_vals, eig_vecs = eigh(R_bar)
 
-    available_rank = int(np.sum(eig_vals > tol))
-    r = resolve_rank(rank, available_rank, N, tol)
+    max_eig = float(np.max(eig_vals))
+    if not np.isfinite(max_eig) or max_eig <= 0.0:
+        raise ValueError(
+            "No positive eigenvalues found in R_bar. "
+            "Data or time window is uninformative."
+        )
+
+    eig_tol = rank_rtol * max_eig
+    available_rank = int(np.sum(eig_vals > eig_tol))
+    r = resolve_rank(rank, available_rank, N, eig_tol)
 
     # Select top r eigenvectors (largest eigenvalues)
     idx = np.argsort(eig_vals)[::-1][:r]
@@ -311,9 +322,9 @@ def solve_gep(
     D_r = eig_vals[idx]
 
     # Check that selected eigenvalues are positive
-    if np.any(D_r <= tol):
+    if np.any(D_r <= eig_tol):
         raise RuntimeError(
-            "Internal error: selected eigenvalues contain values <= tol "
+            "Internal error: selected eigenvalues contain values <= eig_tol "
             "despite available-rank filtering."
         )
 

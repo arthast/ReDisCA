@@ -57,7 +57,6 @@ ALPHA = 0.05
 METRICS = [
     ("true_rdm_corr", "RDM corr"),
     ("pattern_corr", "Pattern corr"),
-    ("filter_corr", "Filter corr"),
 ]
 
 
@@ -100,7 +99,7 @@ def sample_source_timeseries(
     if mixing is None:
         mixing = rng.standard_normal((n_conditions, n_conditions))
 
-    sos = butter(6, cutoff_hz, btype="lowpass", fs=sfreq, output="sos")
+    sos = butter(3, cutoff_hz, btype="lowpass", fs=sfreq, output="sos")
     latent = rng.standard_normal((n_conditions, n_timepoints))
     latent = sosfiltfilt(sos, latent, axis=-1)
 
@@ -292,7 +291,6 @@ def evaluate_source(
             compute_pearson_scores(true_rdm, recovered_rdm[np.newaxis, :, :])[0]
         ),
         "pattern_corr": abs_corr(result.A[:, component], true_topography),
-        "filter_corr": abs_corr(result.W[:, component], true_topography),
     }
 
 
@@ -358,7 +356,7 @@ def plot_metric_summary(df: pd.DataFrame, output_path: Path) -> None:
     """Plot recovery metrics across SNR levels."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     snr_levels = list(dict.fromkeys(float(value) for value in df["snr"]))
-    fig, axes = plt.subplots(1, len(METRICS), figsize=(13, 4), sharey=True)
+    fig, axes = plt.subplots(1, len(METRICS), figsize=(9, 4), sharey=True)
 
     for ax, (metric, title) in zip(axes, METRICS):
         samples = [

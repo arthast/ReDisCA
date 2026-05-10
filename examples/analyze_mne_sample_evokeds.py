@@ -13,19 +13,23 @@ patterns out.
 from pathlib import Path
 
 import mne
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 
 from redisca import (
     binary_rdm,
+    evokeds_to_tensor,
     fit_redisca_evokeds,
     sliding_window_fit_redisca_evokeds,
 )
 from redisca.report import (
     save_evoked_overview,
     save_result_diagnostics,
+    save_scan_overview_figure,
     save_sliding_window_report,
     save_target_rdm_figure,
+    save_window_sequence_figure,
 )
 
 
@@ -50,7 +54,7 @@ FIXED_TMAX = 0.200
 # Optional sliding-window scan.
 RUN_SLIDING_WINDOW = True
 SCAN_TMIN = 0.000
-SCAN_TMAX = 0.350
+SCAN_TMAX = 0.500
 WINDOW_MS = 100.0
 STEP_MS = 20.0
 
@@ -60,7 +64,13 @@ STEP_MS = 20.0
 RANK: int | str | None = "auto"
 PERMUTATION_TEST = True
 N_PERM = 100
+ALPHA = 0.05
 RANDOM_STATE = 0
+
+# Components/windows to summarize after the sliding-window scan.
+MAX_SCAN_COMPONENTS = 4
+COMPONENTS_FOR_WINDOW_TOPO = (0, 1)
+MAX_TOPO_WINDOWS_PER_COMPONENT = 3
 
 
 # =============================================================================
@@ -95,6 +105,7 @@ evokeds = {
     condition: available_evokeds[condition].copy().pick("eeg", exclude="bads")
     for condition in CONDITION_ORDER
 }
+X, times, info = evokeds_to_tensor(evokeds, CONDITION_ORDER)
 
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 save_evoked_overview(
@@ -134,6 +145,7 @@ analysis = fit_redisca_evokeds(
     rank=RANK,
     permutation_test=PERMUTATION_TEST,
     n_perm=N_PERM,
+    alpha=ALPHA,
     random_state=RANDOM_STATE,
 )
 
@@ -164,6 +176,7 @@ if RUN_SLIDING_WINDOW:
         rank=RANK,
         permutation_test=PERMUTATION_TEST,
         n_perm=N_PERM,
+        alpha=ALPHA,
         random_state=RANDOM_STATE,
     )
 
@@ -174,10 +187,72 @@ if RUN_SLIDING_WINDOW:
         OUTPUT_ROOT,
         prefix="auditory_vs_visual",
         title_prefix="MNE sample: auditory vs visual window scan",
-        max_components=6,
+        max_components=MAX_SCAN_COMPONENTS,
         center_scale=1000.0,
+        alpha=ALPHA,
         highlight_window_index=best_idx,
     )
+
+    p_values = scan.component_metric_matrix(
+        "p_values",
+        max_components=MAX_SCAN_COMPONENTS,
+    )
+    for component in COMPONENTS_FOR_WINDOW_TOPO:
+        if component >= p_values.shape[0]:
+            continue
+
+        component_p = p_values[component]
+        finite = np.isfinite(component_p)
+        significant_windows = np.flatnonzero(finite & (component_p < ALPHA))
+
+        if significant_windows.size:
+            ranked = significant_windows[np.argsort(component_p[significant_windows])]
+            selected_idx = int(ranked[0])
+            window_indices = np.sort(ranked[:MAX_TOPO_WINDOWS_PER_COMPONENT])
+            sequence_label = "significant windows"
+        else:
+            selected_idx = scan_analysis.best_window_index(component=component)
+            ranked = np.argsort(np.where(finite, component_p, np.inf))
+            ranked = ranked[np.isfinite(component_p[ranked])]
+            window_indices = np.sort(ranked[:MAX_TOPO_WINDOWS_PER_COMPONENT])
+            if window_indices.size == 0:
+                window_indices = np.array([selected_idx], dtype=int)
+            sequence_label = "lowest p-value windows"
+
+        component_dir = OUTPUT_ROOT / f"component_{component}_window_scan"
+        save_scan_overview_figure(
+            scan,
+            component_dir / "scan_overview.png",
+            info=info,
+            condition_names=CONDITION_ORDER,
+            title=(
+                "MNE sample: auditory vs visual "
+                f"component {component} sliding-window summary"
+            ),
+            component=component,
+            max_components=MAX_SCAN_COMPONENTS,
+            alpha=ALPHA,
+            selected_window_index=selected_idx,
+            center_scale=1000.0,
+            time_unit="ms",
+        )
+        save_window_sequence_figure(
+            scan,
+            component_dir / "selected_window_topographies.png",
+            info=info,
+            times=times,
+            condition_names=CONDITION_ORDER,
+            title=(
+                "MNE sample: auditory vs visual "
+                f"component {component} {sequence_label}"
+            ),
+            window_indices=window_indices.tolist(),
+            component=component,
+            X_full=X,
+            alpha=ALPHA,
+            time_scale=1000.0,
+            time_unit="ms",
+        )
 
     best_result = scan_analysis.best_result(component=0)
     best_times = scan_analysis.best_window_times(component=0)

@@ -43,7 +43,7 @@ def test_synthetic_benchmark_source_metrics_are_bounded():
     assert 0.0 <= metrics["target_rdm_corr"] <= 1.0
     assert 0.0 <= metrics["true_rdm_corr"] <= 1.0
     assert 0.0 <= metrics["pattern_corr"] <= 1.0
-    assert 0.0 <= metrics["filter_corr"] <= 1.0
+    assert "filter_corr" not in metrics
     assert 0.0 < metrics["p_value"] <= 1.0
     assert isinstance(metrics["significant"], bool)
 

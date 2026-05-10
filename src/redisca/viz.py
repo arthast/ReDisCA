@@ -20,6 +20,7 @@ from matplotlib.axes import Axes
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .types import ReDisCAResult, SlidingWindowReDisCAResult
+from .validation import validate_component_index, validate_component_indices
 
 
 def _maybe_save(fig: Figure | SubFigure, save_path: str | Path | None, dpi: int) -> None:
@@ -123,6 +124,11 @@ def plot_component_timeseries_panel(
     show_legend: bool = False,
 ) -> None:
     """Plot one component's condition time series into an existing axes."""
+    component = validate_component_index(
+        component,
+        timeseries.shape[1],
+        name="component",
+    )
     times = np.asarray(times, dtype=np.float64)
     if times.shape != (timeseries.shape[-1],):
         raise ValueError(
@@ -389,8 +395,8 @@ def plot_component_scores(
         pearson_mode: Used when ``order="pearson"``.
             ``"pos"`` — rank by highest positive r.
             ``"abs"`` — rank by largest |r|.
-        show_p: If *True* and ``p_values`` exist, mark significant
-            components with a star (★).
+        show_p: If *True* and ``p_values`` exist, annotate significant
+            components with their p-value.
         ax: Matplotlib axes to draw on.  Created if *None*.
         save_path: If given, save the figure to this file path.
         dpi: Resolution for saved figure (default 150).
@@ -426,18 +432,18 @@ def plot_component_scores(
     colours = ["#4C72B0" if s >= 0 else "#DD8452" for s in scores]
     bars = ax.bar(range(r), scores, color=colours)
 
-    # Significance markers
+    # Significance labels
     if show_p and result.p_values is not None:
         p_sorted = result.p_values[idx]
         sig_sorted = result.significant[idx] if result.significant is not None else p_sorted < 0.05
-        for i, (bar, is_sig) in enumerate(zip(bars, sig_sorted)):
+        for i, (bar, is_sig, p_value) in enumerate(zip(bars, sig_sorted, p_sorted)):
             if is_sig:
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
                     bar.get_height(),
-                    "★",
+                    f"p={p_value:.3g}",
                     ha="center", va="bottom",
-                    fontsize=12, color="goldenrod",
+                    fontsize=8, color="0.2",
                 )
 
     ax.set_xticks(range(r))
@@ -561,11 +567,11 @@ def plot_sliding_window_metric(
             ax.scatter(
                 centers[significant_cols],
                 significant_rows,
-                marker="*",
-                s=70,
-                color="white",
-                edgecolors="black",
-                linewidths=0.3,
+                marker="o",
+                s=32,
+                facecolors="none",
+                edgecolors="white",
+                linewidths=0.8,
             )
 
     _maybe_save(fig, save_path, dpi)
@@ -663,9 +669,7 @@ def plot_component_timeseries(
             raise ValueError(f"order must be 'lambda' or 'pearson', got '{order}'")
         idxs = ranked[:min(3, r)].tolist()
     else:
-        idxs = [i for i in idxs if i < r]
-        if len(idxs) == 0:
-            raise ValueError("No valid component indices in idxs.")
+        idxs = validate_component_indices(idxs, r, name="idxs")
 
     if legend not in ("auto", "axes", "figure", "none"):
         raise ValueError(
@@ -856,9 +860,7 @@ def plot_patterns(
     if idxs is None:
         idxs = list(range(min(3, r)))
     else:
-        idxs = [i for i in idxs if i < r]
-        if len(idxs) == 0:
-            raise ValueError("No valid component indices in idxs.")
+        idxs = validate_component_indices(idxs, r, name="idxs")
 
     n_panels = len(idxs)
     fig, axes = plt.subplots(1, n_panels, figsize=(max(4, 0.45 * N) * n_panels, 4))
