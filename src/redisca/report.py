@@ -239,6 +239,20 @@ def save_scan_overview_figure(
         "lambdas",
         max_components=max_components,
     )[component]
+    finite_lambda_mask = np.isfinite(component_lambdas)
+    lambda_profile = np.full_like(component_lambdas, np.nan, dtype=np.float64)
+    if np.any(finite_lambda_mask):
+        finite_lambdas = component_lambdas[finite_lambda_mask]
+        lambda_min = float(np.min(finite_lambdas))
+        lambda_max = float(np.max(finite_lambdas))
+        lambda_span = lambda_max - lambda_min
+        if lambda_span > 1e-12:
+            lambda_profile[finite_lambda_mask] = (
+                (finite_lambdas - lambda_min) / lambda_span
+            )
+        else:
+            lambda_profile[finite_lambda_mask] = 1.0 if lambda_max > 0.0 else 0.0
+
     p_line = axes[1, 1].plot(
         centers,
         component_p,
@@ -253,26 +267,19 @@ def save_scan_overview_figure(
         linewidth=1.0,
         label=f"{alpha:g} level",
     )
+    lambda_line = axes[1, 1].plot(
+        centers,
+        lambda_profile,
+        color="#DD8452",
+        linewidth=1.8,
+        label="lambda profile (0-1 norm.)",
+    )[0]
     axes[1, 1].axvline(selected_center, color="0.25", linestyle=":", linewidth=1.0)
     axes[1, 1].set_ylim(0.0, 1.0)
     axes[1, 1].set_title(f"Component {component} profile")
     axes[1, 1].set_xlabel(f"Window center ({time_unit})")
-    axes[1, 1].set_ylabel("p-value", labelpad=0)
+    axes[1, 1].set_ylabel("p-value / normalized lambda", labelpad=0)
     axes[1, 1].grid(True, linewidth=0.3, alpha=0.35)
-
-    lambda_ax = axes[1, 1].twinx()
-    lambda_line = lambda_ax.plot(
-        centers,
-        component_lambdas,
-        color="#DD8452",
-        linewidth=1.7,
-        label="lambda profile",
-    )[0]
-    lambda_ax.set_ylabel("lambda", color="#DD8452", labelpad=0)
-    lambda_ax.tick_params(axis="y", colors="#DD8452")
-    finite_lambdas = component_lambdas[np.isfinite(component_lambdas)]
-    if finite_lambdas.size and float(np.min(finite_lambdas)) >= 0.0:
-        lambda_ax.set_ylim(bottom=0.0)
 
     axes[1, 1].legend(
         handles=[p_line, alpha_line, lambda_line],
@@ -813,7 +820,7 @@ def save_result_diagnostics(
         order="pearson",
         include_target=True,
         condition_names=condition_names,
-        save_path=output_dir / "top_component_rdms.png",
+        save_path=output_dir / "mne_sample_top_component_rdms.png",
     )
     plt.close(fig)
 
@@ -844,7 +851,7 @@ def save_result_diagnostics(
             if time_unit == "ms"
             else (float(times[0]), float(times[-1]))
         ),
-        save_path=output_dir / "component_timeseries_by_condition.png",
+        save_path=output_dir / "mne_sample_fixed_component_timeseries.png",
     )
     plt.close(fig)
 
@@ -853,7 +860,7 @@ def save_result_diagnostics(
             result,
             info,
             idxs=list(range(min(top_k, result.n_components))),
-            save_path=output_dir / "pattern_topomaps.png",
+            save_path=output_dir / "mne_sample_fixed_pattern_topomaps.png",
         )
         plt.close(fig)
 
